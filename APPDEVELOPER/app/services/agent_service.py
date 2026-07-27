@@ -21,32 +21,37 @@ logger = structlog.get_logger()
 
 
 class AgentService:
-    def __init__(self, anthropic_api_key: str) -> None:
-        self._api_key = anthropic_api_key
+    def __init__(self, api_key: str = "", base_url: str = "", model: str = "") -> None:
+        self._api_key = api_key
+        self._base_url = base_url
+        self._model = model
         self._client: Any = None
 
     async def _get_client(self) -> Any:
         if self._client is None:
-            # Without an API key we cannot talk to a real model, so fall back to a
-            # deterministic offline mock. This keeps the full job pipeline runnable
-            # (and the BACKEND handoff working) without any external credentials.
-            if not self._api_key:
-                logger.warning(
-                    "anthropic_api_key_missing_using_mock_client",
-                )
-                self._client = MockClaudeClient()
-                return self._client
+            # When a base URL + model are configured, use the real Claude Agent
+            # SDK. Point ANTHROPIC_BASE_URL at the LiteLLM proxy so the SDK's
+            # Anthropic-format traffic is transparently routed to your
+            # OpenAI-compatible backend (the SDK still "thinks" it is Claude).
+            if self._base_url and self._model:
+                try:
+                    self._client = ClaudeAgentSDKClient(
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        model=self._model,
+                    )
+                    return self._client
+                except Exception as e:  # noqa: BLE001 - fall back to mock on any issue
+                    logger.warning(
+                        "claude_agent_sdk_init_failed_using_mock", error=str(e)
+                    )
+                    self._client = MockClaudeClient()
+                    return self._client
 
-            try:
-                from claude_agent_sdk import ClaudeSDKClient
-
-                self._client = ClaudeSDKClient(api_key=self._api_key)
-            except Exception as e:  # noqa: BLE001 - any SDK issue falls back to mock
-                logger.warning(
-                    "claude_agent_sdk_unavailable_using_mock",
-                    error=str(e),
-                )
-                self._client = MockClaudeClient()
+            # No LLM endpoint configured: use a deterministic offline mock so the
+            # full job pipeline still runs without any external services.
+            logger.warning("llm_endpoint_not_configured_using_mock_client")
+            self._client = MockClaudeClient()
         return self._client
 
     async def run_planner(
@@ -236,6 +241,64 @@ Workspace: {workspace_path}
         except Exception as e:
             logger.error("fixer_error", error=str(e))
             raise
+
+
+class ClaudeAgentSDKClient:
+    """Adapter exposing a ``.query()`` over the real ``claude_agent_sdk``.
+
+    All traffic is routed through ``ANTHROPIC_BASE_URL`` (injected per call via
+    the SDK's subprocess env), so pointing it at the LiteLLM proxy makes the
+    Claude Agent SDK talk to your OpenAI-compatible backend while still using
+    the Anthropic wire format.
+    """
+
+    def __init__(self, base_url: str, api_key: str, model: str) -> None:
+        # Import here so a missing/incompatible SDK falls back to mock cleanly
+        # in AgentService._get_client.
+        from claude_agent_sdk import (
+            AssistantMessage,
+            ClaudeAgentOptions,
+            TextBlock,
+            query,
+        )
+
+        self._query = query
+        self._Options = ClaudeAgentOptions
+        self._AssistantMessage = AssistantMessage
+        self._TextBlock = TextBlock
+        self._base_url = base_url
+        self._api_key = api_key
+        self._model = model
+
+    async def query(
+        self,
+        system: str,
+        message: str,
+        max_tokens: int = 4096,
+        tools: list[str] | None = None,
+    ) -> dict[str, str]:
+        env: dict[str, str] = {}
+        if self._base_url:
+            env["ANTHROPIC_BASE_URL"] = self._base_url
+        if self._api_key:
+            env["ANTHROPIC_API_KEY"] = self._api_key
+
+        options = self._Options(
+            system_prompt=system,
+            model=self._model or None,
+            allowed_tools=[],  # planner/reviewer output is plain text; no tools
+            permission_mode="bypassPermissions",
+            max_turns=1,
+            env=env,
+        )
+
+        parts: list[str] = []
+        async for msg in self._query(prompt=message, options=options):
+            if isinstance(msg, self._AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, self._TextBlock):
+                        parts.append(block.text)
+        return {"content": "".join(parts)}
 
 
 class MockClaudeClient:

@@ -25,17 +25,16 @@ async def get_db(
 def get_planner() -> Planner:
     """Select the planner implementation.
 
-    Uses the real Claude-backed planner only when explicitly enabled and an
-    Anthropic API key is configured; otherwise falls back to the deterministic
-    FakePlanner so the planning flow works without external credentials.
+    Uses the real Anthropic-format planner when ``PLANNER_MODE=real`` (routed to
+    whatever ``ANTHROPIC_BASE_URL`` points at — e.g. the LiteLLM proxy);
+    otherwise falls back to the deterministic FakePlanner so the planning flow
+    works with no LLM configured.
     """
-    if settings.planner_mode.lower() == "real" and settings.anthropic_api_key:
+    if settings.planner_mode.lower() == "real":
         from app.services.claude_planner_real import ClaudePlannerAdapter
 
         return ClaudePlannerAdapter()
 
-    if settings.planner_mode.lower() == "real":
-        logger.warning("planner_mode_real_but_no_api_key_using_fake_planner")
     return FakePlanner()
 
 

@@ -19,7 +19,12 @@ async def run_deployment_agent(
     system_prompt = load_system_prompt()
     full_prompt = f"{system_prompt}\n\nThe user has provided the following deployment requirements:\n{json.dumps(requirements, indent=2)}"
 
-    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    # Point ANTHROPIC_BASE_URL at the LiteLLM proxy to route the Anthropic
+    # client to an OpenAI-compatible backend. Empty -> real Anthropic endpoint.
+    client = Anthropic(
+        api_key=settings.ANTHROPIC_API_KEY,
+        base_url=settings.ANTHROPIC_BASE_URL or None,
+    )
 
     try:
         await on_status("analyzing")

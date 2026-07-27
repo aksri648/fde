@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str = ""
     LITELLM_PROXY_URL: str = "http://localhost:4000"
     LLMDEPLOYER_API_KEY: str = ""
     AZURE_TENANT_ID: str = ""

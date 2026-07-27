@@ -35,6 +35,10 @@ logger = structlog.get_logger()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./appdeveloper.db")
 WORKSPACE_ROOT = os.getenv("APPDEVELOPER_WORKSPACE_ROOT", "./workspaces")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# Point ANTHROPIC_BASE_URL at the LiteLLM proxy to route the Claude Agent SDK
+# to your OpenAI-compatible backend. ANTHROPIC_MODEL is the model/alias to use.
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "")
 APPDEVELOPER_API_KEY = os.getenv("APPDEVELOPER_API_KEY", "")
 MAX_CONCURRENT_JOBS = int(os.getenv("APPDEVELOPER_MAX_CONCURRENT_JOBS", "5"))
 
@@ -48,7 +52,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     event_repo = EventRepository(db)
 
     workspace_service = WorkspaceService(WORKSPACE_ROOT)
-    agent_service = AgentService(ANTHROPIC_API_KEY)
+    agent_service = AgentService(
+        api_key=ANTHROPIC_API_KEY,
+        base_url=ANTHROPIC_BASE_URL,
+        model=ANTHROPIC_MODEL,
+    )
     event_service = EventService(event_repo, job_repo)
     validation_service = ValidationService(workspace_service)
     architecture_service = ArchitectureService(agent_service, event_service)

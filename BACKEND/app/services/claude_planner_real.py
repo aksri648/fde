@@ -1,4 +1,12 @@
-"""Real Claude Agent SDK planner adapter using Anthropic Messages API."""
+"""Real planner adapter using the Anthropic Messages API.
+
+The client speaks the Anthropic wire format (``/v1/messages`` with an
+``x-api-key`` header), but the destination is configurable via
+``ANTHROPIC_BASE_URL``. Point it at the LiteLLM proxy — which exposes an
+Anthropic-compatible ``/v1/messages`` endpoint and translates to your
+OpenAI-compatible backend — and the planner transparently runs on that model
+while still "thinking" it is talking to Claude.
+"""
 
 from __future__ import annotations
 
@@ -15,15 +23,11 @@ logger = structlog.get_logger(__name__)
 
 
 class ClaudePlannerAdapter:
-    """Real planner using Claude API via Anthropic Messages API.
-
-    This adapter uses the Anthropic Messages API directly rather than the
-    Claude Agent SDK, since the SDK may not be available in all environments.
-    The implementation follows the same read-only, tool-free principles.
-    """
+    """Planner using the Anthropic Messages API (routable to a LiteLLM proxy)."""
 
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
+        self._base_url = settings.anthropic_base_url.rstrip("/")
         self._api_key = settings.anthropic_api_key
         self._model = settings.fde_claude_model
         self._timeout = settings.claude_agent_sdk_timeout_seconds
@@ -31,7 +35,7 @@ class ClaudePlannerAdapter:
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
-                base_url="https://api.anthropic.com",
+                base_url=self._base_url,
                 headers={
                     "x-api-key": self._api_key,
                     "anthropic-version": "2023-06-01",
@@ -48,7 +52,9 @@ class ClaudePlannerAdapter:
         current_state: str,
         plan_version: int,
     ) -> PlannerOutput:
-        messages = self._build_messages(conversation_history, facts, current_state, plan_version)
+        messages = self._build_messages(
+            conversation_history, facts, current_state, plan_version
+        )
 
         client = await self._get_client()
 
@@ -73,7 +79,7 @@ class ClaudePlannerAdapter:
                     break
 
             if not text:
-                raise ValueError("No text content in Claude response")
+                raise ValueError("No text content in response")
 
             parsed = json.loads(text)
             return PlannerOutput(**parsed)
@@ -83,7 +89,9 @@ class ClaudePlannerAdapter:
             return await self._repair_json(text if "text" in dir() else "", str(e))
 
         except httpx.HTTPStatusError as e:
-            logger.error("planner_http_error", status=e.response.status_code, error=str(e))
+            logger.error(
+                "planner_http_error", status=e.response.status_code, error=str(e)
+            )
             raise
 
         except Exception as e:

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     claude_agent_sdk_timeout_seconds: int = 90
     litellm_proxy_url: str = "http://localhost:4000"
     litellm_master_key: str = ""
+    # Base URL for the Anthropic-format endpoint the planner talks to. Point this
+    # at the LiteLLM proxy (which exposes an Anthropic-compatible /v1/messages
+    # endpoint and translates to your OpenAI-compatible backend). The client
+    # keeps speaking the Anthropic wire format; only the destination changes.
+    anthropic_base_url: str = "https://api.anthropic.com"
     appdeveloper_base_url: str = "http://localhost:8001"
     appdeveloper_api_key: str = ""
     llmdeployer_base_url: str = "http://localhost:8002"
@@ -41,7 +46,10 @@ class Settings(BaseSettings):
     request_max_bytes: int = 65536
     planner_mode: str = "real"
     redis_rate_limit_key_prefix: str = "fde:ratelimit:"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
 
     @field_validator("app_env", mode="before")
     @classmethod
