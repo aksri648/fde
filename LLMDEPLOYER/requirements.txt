@@ -9,6 +9,7 @@ pydantic
 pydantic-settings
 python-dotenv
 tavily-python
+daytona
 runpod
 modal
 azure-identity

@@ -21,6 +21,20 @@ async def orchestrate_deployment(session_id: str):
             )
             return
 
+        # Create an isolated Daytona sandbox for this deployment session (if configured)
+        from app.services.sandbox_service import is_daytona_configured, sandbox_service
+
+        sandbox = None
+        if is_daytona_configured():
+            try:
+                sandbox = sandbox_service.create_sandbox(session_id)
+                await connection_manager.send_to_session(
+                    session_id,
+                    {"type": "status_update", "payload": {"status": "sandbox_ready", "detail": f"Sandbox {sandbox.id} ready"}},
+                )
+            except Exception as e:
+                logger.error(f"Sandbox creation failed, continuing without isolation: {e}")
+
         session_manager.update_status(session_id, "deploying")
         await connection_manager.send_to_session(
             session_id,
@@ -56,3 +70,9 @@ async def orchestrate_deployment(session_id: str):
             session_id,
             {"type": "error", "payload": {"message": f"Deployment failed: {str(e)}"}},
         )
+    finally:
+        # Clean up the sandbox regardless of success/failure
+        from app.services.sandbox_service import is_daytona_configured, sandbox_service
+
+        if is_daytona_configured():
+            sandbox_service.destroy_sandbox(session_id)
