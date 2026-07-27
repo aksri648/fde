@@ -67,23 +67,27 @@ services:
     dockerfilePath: ./Dockerfile
     dockerCommand: python -m app.workers.main
     envVars:
-      - fromService:
+      - key: DATABASE_URL
+        fromService:
           type: web
           name: fde-backend
           envVarKey: DATABASE_URL
-      - fromService:
+      - key: REDIS_URL
+        fromService:
           type: web
           name: fde-backend
           envVarKey: REDIS_URL
       - key: APPDEVELOPER_BASE_URL
         value: http://fde-appdeveloper:8001
-      - fromService:
+      - key: APPDEVELOPER_API_KEY
+        fromService:
           type: web
           name: fde-backend
           envVarKey: APPDEVELOPER_API_KEY
       - key: LLMDEPLOYER_BASE_URL
         value: http://fde-llmdeployer:8002
-      - fromService:
+      - key: LLMDEPLOYER_API_KEY
+        fromService:
           type: web
           name: fde-backend
           envVarKey: LLMDEPLOYER_API_KEY
