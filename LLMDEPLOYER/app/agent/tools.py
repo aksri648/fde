@@ -2,11 +2,6 @@ import json
 import asyncio
 import litellm
 
-from app.adapters.runpod_adapter import RunPodAdapter
-from app.adapters.modal_adapter import ModalAdapter
-from app.adapters.azure_adapter import AzureAdapter
-from app.adapters.vllm_deployer import VLLMDeployer
-from app.adapters.nim_deployer import NIMDeployer
 from app.utils.logger import get_logger
 
 logger = get_logger("agent_tools")
@@ -26,6 +21,8 @@ async def analyze_requirements(requirements: str) -> str:
 async def deploy_runpod_serverless(
     model_name: str, gpu_type: str, max_workers: int, idle_timeout: int
 ) -> str:
+    from app.adapters.runpod_adapter import RunPodAdapter
+
     adapter = RunPodAdapter()
     from app.models.deployment import DeploymentConfig
 
@@ -45,6 +42,8 @@ async def deploy_runpod_serverless(
 async def deploy_modal_serverless(
     model_name: str, gpu_type: str, max_containers: int, container_idle_timeout: int
 ) -> str:
+    from app.adapters.modal_adapter import ModalAdapter
+
     adapter = ModalAdapter()
     from app.models.deployment import DeploymentConfig
 
@@ -72,6 +71,9 @@ async def deploy_vllm_on_azure(
     region: str,
     optimization_flags: dict,
 ) -> str:
+    from app.adapters.azure_adapter import AzureAdapter
+    from app.adapters.vllm_deployer import VLLMDeployer
+
     azure_adapter = AzureAdapter()
     vllm_deployer = VLLMDeployer()
 
@@ -156,6 +158,9 @@ async def deploy_nim_on_azure(
     gpu_count: int,
     region: str,
 ) -> str:
+    from app.adapters.azure_adapter import AzureAdapter
+    from app.adapters.nim_deployer import NIMDeployer
+
     azure_adapter = AzureAdapter()
     nim_deployer = NIMDeployer()
 
@@ -215,10 +220,14 @@ async def check_deployment_status(deployment_id: str, provider: str) -> str:
     if provider == "azure":
         return json.dumps({"status": "unknown", "detail": "Azure status check not implemented"})
     elif provider == "runpod":
+        from app.adapters.runpod_adapter import RunPodAdapter
+
         adapter = RunPodAdapter()
         result = await adapter.check_status(deployment_id)
         return json.dumps(result)
     elif provider == "modal":
+        from app.adapters.modal_adapter import ModalAdapter
+
         adapter = ModalAdapter()
         result = await adapter.check_status(deployment_id)
         return json.dumps(result)
