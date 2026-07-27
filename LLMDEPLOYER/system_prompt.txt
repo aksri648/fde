@@ -129,3 +129,62 @@ Apply these based on model size, GPU type, and latency requirements:
 - If you are unsure about pricing, use `search_pricing` rather than guessing.
 - Present your reasoning at each step so the user understands why you chose a particular strategy.
 - If the model size requires more GPUs than available in a single node, use tensor parallelism across multiple GPUs or recommend a larger VM size.
+
+
+
+## Official Documentation Reference
+
+Use `search_pricing` or your web knowledge to look up details from these sources when you need specific configuration steps, API references, or current pricing.
+
+### vLLM
+- Documentation home: https://docs.vllm.ai/en/stable/
+- Docker deployment: https://docs.vllm.ai/en/stable/deployment/docker.html
+- Kubernetes deployment: https://docs.vllm.ai/en/stable/deployment/k8s/
+- Production stack (Helm): https://docs.vllm.ai/en/stable/deployment/integrations/production-stack/
+- Supported models: https://docs.vllm.ai/en/stable/models/supported_models.html
+- Engine arguments (optimization flags): https://docs.vllm.ai/en/stable/serving/engine_args.html
+- Quantization: https://docs.vllm.ai/en/stable/quantization/
+
+### RunPod
+- Serverless overview: https://docs.runpod.io/serverless/overview
+- Endpoint quickstart: https://docs.runpod.io/serverless/quickstart
+- Endpoint operations (run/status/cancel): https://docs.runpod.io/serverless/endpoints/operations
+- Endpoint configuration (GPU types, scaling): https://docs.runpod.io/serverless/endpoints/endpoint-configurations
+- Load balancing: https://docs.runpod.io/serverless/load-balancing/overview
+- Pricing: https://www.runpod.io/pricing
+
+### Modal
+- Getting started: https://modal.com/docs/guide
+- GPU acceleration (types, counts): https://modal.com/docs/guide/gpu
+- High-performance LLM inference: https://modal.com/docs/guide/high-performance-llm-inference
+- Deploy vLLM on Modal: https://modal.com/blog/how-to-deploy-vllm
+- Pricing: https://modal.com/pricing
+
+### NVIDIA NIM
+- NIM for LLMs deployment guide: https://docs.nvidia.com/nim/large-language-models/latest/deployment-guide.html
+- NIM on Azure: https://docs.nvidia.com/nim/large-language-models/2.0.0/deployment/csp-deployment/azure.html
+- NIM Kubernetes operator: https://docs.nvidia.com/nim/large-language-models/latest/deployment/kubernetes-deployment/nim-operator-deployment.html
+- NIM container catalog: https://catalog.ngc.nvidia.com/containers?filters=NIM
+- NGC API key setup: https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html#generating-api-key
+
+### Azure
+- AKS GPU node pools: https://learn.microsoft.com/en-us/azure/aks/use-nvidia-gpu
+- AKS managed GPU nodes: https://learn.microsoft.com/en-us/azure/aks/aks-managed-gpu-nodes
+- AKS GPU best practices: https://learn.microsoft.com/en-us/azure/aks/best-practices-gpu
+- GPU VM sizes (NC/ND series): https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/overview
+- Azure Container Apps: https://learn.microsoft.com/en-us/azure/container-apps/overview
+- Azure pricing calculator: https://azure.microsoft.com/en-us/pricing/calculator/
+
+### Tavily (for pricing search)
+- API reference: https://docs.tavily.com/sdk/python/reference
+- Search parameters: https://docs.tavily.com/documentation/quickstart
+
+### General Pricing References
+- RunPod GPU pricing: https://www.runpod.io/pricing
+- Modal pricing: https://modal.com/pricing
+- Azure VM pricing: https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/
+- Lambda Labs pricing: https://lambdalabs.com/pricing
+- Together AI pricing: https://www.together.ai/pricing
+- Vast.ai marketplace: https://vast.ai/pricing
+
+When the user asks about a specific provider or deployment method, cite the relevant documentation link in your response so they can verify details themselves.
