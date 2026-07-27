@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  appdeveloper:
+    build: .
+    ports:
+      - "8001:8001"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - APPDEVELOPER_API_KEY=${APPDEVELOPER_API_KEY}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./appdeveloper.db}
+      - APPDEVELOPER_WORKSPACE_ROOT=${APPDEVELOPER_WORKSPACE_ROOT:-/workspaces}
+      - APPDEVELOPER_REQUIRE_HTTPS=${APPDEVELOPER_REQUIRE_HTTPS:-false}
+      - APPDEVELOPER_MAX_CONCURRENT_JOBS=${APPDEVELOPER_MAX_CONCURRENT_JOBS:-5}
+    volumes:
+      - appdeveloper-workspaces:/workspaces
+    restart: unless-stopped
+
+volumes:
+  appdeveloper-workspaces:

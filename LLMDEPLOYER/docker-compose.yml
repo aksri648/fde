@@ -1,0 +1,23 @@
+services:
+  llmdeployer:
+    build: .
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      - LITELLM_PROXY_URL=http://litellm:4000
+    depends_on:
+      - litellm
+    volumes:
+      - ./system_prompt.txt:/app/system_prompt.txt
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    command: --config /app/config.yaml --port 4000
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    ports:
+      - "4000:4000"

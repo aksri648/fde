@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDE System Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; padding: 32px; line-height: 1.6; }
+  h1 { font-size: 28px; margin-bottom: 8px; color: #fff; }
+  h2 { font-size: 20px; margin: 32px 0 16px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 16px; margin: 20px 0 10px; color: var(--purple); }
+  .subtitle { color: #8b949e; font-size: 14px; margin-bottom: 24px; }
+  .diagram-container { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin: 16px 0; overflow-x: auto; }
+  .mermaid { display: flex; justify-content: center; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  th { background: var(--card); color: var(--accent); font-weight: 600; }
+  td { background: #0d1117; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin: 1px 2px; }
+  .tag-port { background: #1f3a5f; color: var(--accent); }
+  .tag-auth { background: #2d1f0f; color: var(--yellow); }
+  .tag-db { background: #1a2e1a; color: var(--green); }
+  .tag-ws { background: #2d1f3f; color: var(--purple); }
+  .tag-rest { background: #1a2e1a; color: var(--green); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+  .grid-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .grid-card h4 { color: var(--accent); font-size: 14px; margin-bottom: 8px; }
+  .grid-card ul { list-style: none; font-size: 13px; }
+  .grid-card li { padding: 3px 0; }
+  .grid-card li::before { content: "›"; color: var(--accent); margin-right: 8px; }
+  .arrow { color: var(--accent); font-weight: bold; }
+  code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--yellow); }
+  .note { background: #0d1117; border-left: 3px solid var(--accent); padding: 12px 16px; margin: 12px 0; font-size: 13px; border-radius: 0 4px 4px 0; }
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>FDE System Architecture</h1>
+<p class="subtitle">Forward Deployed Engineer Planning &amp; Handoff System &mdash; 3 microservices + desktop UI</p>
+
+<!-- ============================================================ -->
+<h2>1. High-Level System View</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','primaryTextColor':'#fff','primaryBorderColor':'#388bfd','lineColor':'#58a6ff','secondaryColor':'#2d1f3f','tertiaryColor':'#1a2e1a','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph TB
+    subgraph Desktop["🖥️  Desktop Renderer (SolidJS + Vite)"]
+        UI["SessionList · ConversationSurface<br/>InputComposer · QuestionPanel<br/>ProposalReview · SessionStatus"]
+    end
+
+    subgraph Backend["☁️  BACKEND  —  Public BFF  (FastAPI :8000)"]
+        direction TB
+        API["REST /v1/* + WS /v1/sessions/{id}/events"]
+        AUTH["Bearer JWT / API Key Auth<br/>+ Tenant Isolation"]
+        PLANNER["Planner Service<br/>(Claude / LiteLLM)"]
+        PROPOSAL["Proposal Service<br/>(approval → outbox)"]
+        OUTBOX["Outbox Worker<br/>(async delivery)"]
+        EVT["EventBroadcaster<br/>(WebSocket pub/sub)"]
+        DB[("PostgreSQL 16<br/>sessions · proposals<br/>turns · outbox · receipts<br/>audit_events")]
+    end
+
+    subgraph AppDev["🔧  APPDEVELOPER  —  Job Generation  (FastAPI :8001)"]
+        JD_API["REST /v1/jobs"]
+        JD_AUTH["X-API-Key Auth"]
+        JD_SVC["JobService → AgentService<br/>ArchitectureService<br/>ReviewService"]
+        JD_DB[("SQLite<br/>jobs · events")]
+        JD_GH["GitHubService<br/>(optional push)"]
+    end
+
+    subgraph LLMDep["🚀  LLMDeployer  —  Deployment  (FastAPI :8002)"]
+        LD_API["REST /api/sessions + /api/sessions/{id}/answers"]
+        LD_AUTH["X-API-Key Auth"]
+        LD_SVC["SessionManager<br/>QuestionFlow · AgentOrchestrator"]
+        LD_ADAPT["Adapters:<br/>Azure · Runpod · Modal<br/>NIM · vLLM"]
+        LD_LLM["Claude Agent SDK<br/>(Anthropic)"]
+    end
+
+    subgraph Infra["🏗️  Infrastructure"]
+        PG[("PostgreSQL 16<br/>:5432")]
+        REDIS[("Redis 7<br/>:6379")]
+        LITELLM["LiteLLM Proxy<br/>:4000"]
+    end
+
+    UI -- "HTTPS REST<br/>Bearer token" --> API
+    UI -- "WSS<br/>?token=..." --> API
+    API --> AUTH
+    AUTH --> PLANNER
+    PLANNER --> PROPOSAL
+    PROPOSAL --> OUTBOX
+    PLANNER --> EVT
+    PROPOSAL --> EVT
+
+    OUTBOX -- "X-API-Key<br/>POST /v1/jobs" --> JD_API
+    OUTBOX -- "X-API-Key<br/>POST /api/sessions<br/>+ /answers" --> LD_API
+
+    API --> DB
+    OUTBOX --> DB
+
+    JD_API --> JD_AUTH
+    JD_AUTH --> JD_SVC
+    JD_SVC --> JD_DB
+    JD_SVC --> JD_GH
+
+    LD_API --> LD_AUTH
+    LD_AUTH --> LD_SVC
+    LD_SVC --> LD_ADAPT
+    LD_SVC --> LD_LLM
+
+    API --> PG
+    API --> REDIS
+    PLANNER --> LITELLM
+    LD_SVC --> LITELLM
+
+    style Desktop fill:#161b22,stroke:#30363d,color:#c9d1d9
+    style Backend fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
+    style AppDev fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
+    style LLMDep fill:#2d1f3f,stroke:#bc8cff,color:#c9d1d9
+    style Infra fill:#1c2128,stroke:#30363d,color:#c9d1d9
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>2. REST API Endpoint Map</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph LR
+    subgraph CLIENT["Client"]
+        C["FRONTEND<br/>(SolidJS)"]
+    end
+
+    subgraph BFF["BACKEND :8000"]
+        direction TB
+        S1["POST /v1/sessions<br/><code>201 → SessionSnapshot</code>"]
+        S2["GET /v1/sessions/{id}"]
+        S3["POST /v1/sessions/{id}/turns"]
+        S4["POST /v1/sessions/{id}/answers"]
+        Q1["GET /v1/sessions/{id}/questions"]
+        P1["GET /v1/sessions/{id}/proposal"]
+        A1["POST /v1/sessions/{id}/approval"]
+        H1["GET /v1/sessions/{id}/handoff"]
+        H2["POST /v1/sessions/{id}/handoff/retry"]
+        C1["POST /v1/sessions/{id}/cancel"]
+        WS["WS /v1/sessions/{id}/events"]
+        HEALTH["GET /health"]
+    end
+
+    C --> S1 & S2 & S3 & S4
+    C --> Q1 & P1 & A1 & H1 & H2 & C1
+    C -. "auth" .-> WS
+</pre>
+</div>
+
+<table>
+<tr><th>Endpoint</th><th>Method</th><th>Auth</th><th>State Guard</th><th>Response</th></tr>
+<tr><td><code>/v1/sessions</code></td><td>POST</td><td>Bearer JWT</td><td>—</td><td><span class="tag tag-rest">201</span> SessionSnapshot</td></tr>
+<tr><td><code>/v1/sessions/{id}</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>SessionSnapshot</td></tr>
+<tr><td><code>/v1/sessions/{id}/turns</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_ANSWERS / AWAITING_APPROVAL / FAILED</td><td><span class="tag tag-rest">202</span></td></tr>
+<tr><td><code>/v1/sessions/{id}/answers</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_ANSWERS / DISCOVERING</td><td><span class="tag tag-rest">202</span></td></tr>
+<tr><td><code>/v1/sessions/{id}/questions</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>QuestionListResponse</td></tr>
+<tr><td><code>/v1/sessions/{id}/proposal</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>{proposal, plan_version, citations}</td></tr>
+<tr><td><code>/v1/sessions/{id}/approval</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_APPROVAL</td><td><span class="tag tag-rest">202</span> approved + outbox queued</td></tr>
+<tr><td><code>/v1/sessions/{id}/handoff</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>{outbox_status, receipt}</td></tr>
+<tr><td><code>/v1/sessions/{id}/handoff/retry</code></td><td>POST</td><td>Bearer JWT</td><td>HANDOFF_FAILED</td><td><span class="tag tag-rest">202</span> retry_queued</td></tr>
+<tr><td><code>/v1/sessions/{id}/cancel</code></td><td>POST</td><td>Bearer JWT</td><td>!HANDED_OFF</td><td>SessionSnapshot → CANCELLED</td></tr>
+<tr><td><code>/v1/sessions/{id}/events</code></td><td>WS</td><td>Query ?token=</td><td>tenant check</td><td>Event stream</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>3. Session State Machine</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+stateDiagram-v2
+    [*] --> DISCOVERING: create_session
+
+    DISCOVERING --> AWAITING_ANSWERS: planner needs info
+    DISCOVERING --> AWAITING_APPROVAL: planner ready
+    DISCOVERING --> FAILED: error
+
+    AWAITING_ANSWERS --> DISCOVERING: answers submitted
+    AWAITING_ANSWERS --> CANCELLED: cancel
+
+    AWAITING_APPROVAL --> DISCOVERING: request_changes
+    AWAITING_APPROVAL --> HANDOFF_QUEUED: approve ✔
+    AWAITING_APPROVAL --> CANCELLED: cancel
+
+    HANDOFF_QUEUED --> HANDED_OFF: outbox delivered ✔
+    HANDOFF_QUEUED --> HANDOFF_FAILED: delivery error
+    HANDOFF_QUEUED --> CANCELLED: cancel
+
+    HANDOFF_FAILED --> HANDOFF_QUEUED: retry
+
+    FAILED --> DISCOVERING: retry
+    FAILED --> CANCELLED: cancel
+
+    HANDED_OFF --> [*]
+    CANCELLED --> [*]
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>4. Handoff Data Flow</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    participant U as 👤 User
+    participant FE as 🖥️ FRONTEND
+    participant BE as ☁️ BACKEND
+    participant DB as 🗄️ PostgreSQL
+    participant OW as ⚙️ Outbox Worker
+    participant AD as 🔧 APPDEVELOPER
+    participant LD as 🚀 LLMDeployer
+
+    U->>FE: Click "Approve"
+    FE->>BE: POST /v1/sessions/{id}/approval<br/>{action: "approve", plan_version: 1}
+    BE->>DB: BEGIN TRANSACTION
+    BE->>DB: Validate session state = AWAITING_APPROVAL
+    BE->>DB: Validate plan_version matches
+    BE->>DB: Create outbox record<br/>(idempotency_key, route, package_json)
+    BE->>DB: UPDATE sessions SET state = HANDOFF_QUEUED
+    BE->>DB: INSERT audit_event (plan_approved_and_queued)
+    BE->>DB: COMMIT
+    BE-->>FE: {status: "approved", plan_version: 1}
+    BE-->>FE: WS event: handoff_queued
+
+    loop Outbox Poll (every 1s)
+        OW->>DB: SELECT pending outbox entries (locked)
+    end
+
+    alt Route = APPDEVELOPER
+        OW->>AD: POST /v1/jobs<br/>X-API-Key: ***<br/>{prompt: "markdown brief"}
+        AD-->>OW: 201 {job_id: "abc-123", state: "queued"}
+    else Route = LLMDEPLOYER
+        OW->>LD: POST /api/sessions<br/>X-API-Key: ***
+        LD-->>OW: 200 {session_id: "ld-456"}
+        OW->>LD: POST /api/sessions/ld-456/answers<br/>{answers: {...}}
+        LD-->>OW: 200 {status: "analyzing"}
+    end
+
+    OW->>DB: BEGIN TRANSACTION
+    OW->>DB: INSERT handoff_receipt<br/>(downstream_id, downstream_status)
+    OW->>DB: UPDATE sessions SET state = HANDED_OFF
+    OW->>DB: UPDATE outbox SET status = COMPLETED
+    OW->>DB: INSERT audit_event (handoff_completed)
+    OW->>DB: COMMIT
+    OW-->>FE: WS event: handoff_completed
+    FE->>FE: Refetch session + handoff status
+    FE-->>U: Show downstream receipt ID
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>5. Security Architecture</h2>
+
+<div class="grid">
+  <div class="grid-card">
+    <h4>🔐 FRONTEND → BACKEND</h4>
+    <ul>
+      <li>Bearer JWT token (or API key in dev)</li>
+      <li>Token contains <code>tenant_id</code> + <code>owner_id</code></li>
+      <li>CORS: localhost:3000, localhost:5173 only</li>
+      <li>No credentials + wildcard origins</li>
+      <li>Rate limiting via Redis</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🔑 BACKEND → APPDEVELOPER</h4>
+    <ul>
+      <li><code>X-API-Key</code> header</li>
+      <li><code>X-Correlation-ID</code> per request</li>
+      <li><code>X-FDE-Session-ID</code> + <code>X-FDE-Plan-Version</code></li>
+      <li><code>Idempotency-Key</code> for safe retry</li>
+      <li>30s connect/read/write timeout</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🔑 BACKEND → LLMDeployer</h4>
+    <ul>
+      <li><code>X-API-Key</code> header</li>
+      <li><code>X-Correlation-ID</code> per request</li>
+      <li><code>X-FDE-Session-ID</code> + <code>X-FDE-Plan-Version</code></li>
+      <li>Two-step: create session → submit answers</li>
+      <li><code>raise_for_status()</code> on both calls</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🛡️ Tenant Isolation</h4>
+    <ul>
+      <li>Every query filtered by <code>tenant_id</code></li>
+      <li><code>ensure_session_ownership()</code> on all endpoints</li>
+      <li>403 Forbidden on cross-tenant access</li>
+      <li>Audit events track all actor actions</li>
+      <li>Secret redaction on all logs</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2>6. Database Schema</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+erDiagram
+    planning_sessions {
+        uuid id PK
+        varchar tenant_id
+        varchar owner_id
+        varchar state
+        int current_plan_version
+        varchar current_route
+        boolean is_cancelled
+        int version
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    conversation_turns {
+        uuid id PK
+        uuid session_id FK
+        varchar role
+        int sequence
+        text sanitized_text
+        varchar correlation_id
+        timestamp created_at
+    }
+
+    architecture_proposals {
+        uuid id PK
+        uuid session_id FK
+        int plan_version
+        jsonb proposal_json
+        varchar content_hash
+        text approval_summary
+        timestamp created_at
+    }
+
+    follow_up_questions {
+        uuid id PK
+        uuid session_id FK
+        int plan_version
+        varchar question_id
+        jsonb question_json
+        timestamp created_at
+    }
+
+    question_answers {
+        uuid id PK
+        uuid session_id FK
+        varchar question_id
+        int plan_version
+        text answer_value
+        timestamp created_at
+    }
+
+    handoff_outbox {
+        uuid id PK
+        uuid session_id FK
+        int plan_version
+        varchar route
+        uuid idempotency_key UK
+        jsonb package_json
+        varchar status
+        int attempt_count
+        int max_attempts
+        text last_error
+        varchar locked_by
+        timestamp locked_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    handoff_receipts {
+        uuid id PK
+        uuid session_id FK
+        uuid outbox_id
+        varchar route
+        uuid idempotency_key
+        varchar downstream_id
+        varchar downstream_status
+        text response_digest
+        timestamp accepted_at
+        int attempt_count
+    }
+
+    audit_events {
+        uuid id PK
+        varchar actor
+        varchar action
+        uuid session_id FK
+        int proposal_version
+        varchar correlation_id
+        jsonb sanitized_metadata
+        timestamp created_at
+    }
+
+    planning_sessions ||--o{ conversation_turns : "has turns"
+    planning_sessions ||--o{ architecture_proposals : "has proposals"
+    planning_sessions ||--o{ follow_up_questions : "has questions"
+    planning_sessions ||--o{ question_answers : "has answers"
+    planning_sessions ||--o{ handoff_outbox : "has outbox"
+    planning_sessions ||--o{ handoff_receipts : "has receipts"
+    planning_sessions ||--o{ audit_events : "has audit"
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>7. Service Port &amp; Dependency Map</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph LR
+    subgraph Ports["Port Allocation"]
+        direction TB
+        P5432["PostgreSQL :5432"]
+        P6379["Redis :6379"]
+        P4000["LiteLLM :4000"]
+        P8000["BACKEND :8000"]
+        P8001["APPDEVELOPER :8001"]
+        P8002["LLMDeployer :8002"]
+        P5173["FRONTEND :5173"]
+    end
+
+    P8000 --> P5432
+    P8000 --> P6379
+    P8000 --> P4000
+    P8000 --> P8001
+    P8000 --> P8002
+    P8002 --> P4000
+    P5173 --> P8000
+
+    style Ports fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
+</pre>
+</div>
+
+<table>
+<tr><th>Service</th><th>Port</th><th>Database</th><th>Auth</th><th>CORS</th></tr>
+<tr><td>BACKEND</td><td><span class="tag tag-port">8000</span></td><td><span class="tag tag-db">PostgreSQL 16</span></td><td><span class="tag tag-auth">Bearer JWT</span></td><td>localhost:3000, localhost:5173</td></tr>
+<tr><td>APPDEVELOPER</td><td><span class="tag tag-port">8001</span></td><td><span class="tag tag-db">SQLite (aiosqlite)</span></td><td><span class="tag tag-auth">X-API-Key</span></td><td>None (empty origins)</td></tr>
+<tr><td>LLMDeployer</td><td><span class="tag tag-port">8002</span></td><td><span class="tag tag-db">In-memory</span></td><td><span class="tag tag-auth">X-API-Key</span></td><td>localhost:3000, localhost:5173</td></tr>
+<tr><td>FRONTEND</td><td><span class="tag tag-port">5173</span></td><td>—</td><td>Bearer token in env</td><td>—</td></tr>
+<tr><td>PostgreSQL</td><td><span class="tag tag-port">5432</span></td><td>fde_backend</td><td>—</td><td>—</td></tr>
+<tr><td>Redis</td><td><span class="tag tag-port">6379</span></td><td>rate limiting</td><td>—</td><td>—</td></tr>
+<tr><td>LiteLLM</td><td><span class="tag tag-port">4000</span></td><td>—</td><td>Master key</td><td>—</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>8. Frontend Component Hierarchy</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph TB
+    APP["App.tsx<br/>Root"]
+
+    APP --> SL["SessionList<br/>Sidebar session list"]
+    APP --> CS["ConversationSurface<br/>Message display"]
+    APP --> IC["InputComposer<br/>Free-text input"]
+    APP --> QP["QuestionPanel<br/>Typed question controls"]
+    APP --> PR["ProposalReview<br/>Architecture review + approve"]
+    APP --> SS["SessionStatus<br/>State machine status"]
+    APP --> CI["ConnectionIndicator<br/>WebSocket status"]
+    APP --> ES["EmptyState<br/>No session selected"]
+    APP --> NSD["NewSessionDialog<br/>Create session modal"]
+
+    subgraph Stores["State"]
+        ST["sessionStore<br/>createSession · refresh<br/>addTurn · submitAnswers<br/>approve · requestChanges<br/>cancel · retryHandoff<br/>connectWs"]
+    end
+
+    subgraph API["API Layer"]
+        AC["client.ts<br/>REST + WebSocket"]
+        TY["types.ts<br/>TypeScript types"]
+    end
+
+    APP --> ST
+    ST --> AC
+    AC --> TY
+
+    style APP fill:#1f6feb,stroke:#388bfd,color:#fff
+    style Stores fill:#2d1f3f,stroke:#bc8cff,color:#c9d1d9
+    style API fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>9. Event Flow (WebSocket)</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    participant FE as 🖥️ FRONTEND
+    participant BE as ☁️ BACKEND
+
+    FE->>BE: WS connect ?token=...
+    BE->>BE: Validate JWT → tenant_id
+    BE->>BE: Subscribe to session events
+    BE-->>FE: {event: "snapshot", data: {state, plan_version}}
+
+    loop Live updates
+        BE-->>FE: {event: "state_changed", data: {state}}
+        BE-->>FE: {event: "assistant_message", data: {text}}
+        BE-->>FE: {event: "questions_ready", data: {count}}
+        BE-->>FE: {event: "proposal_ready", data: {plan_version}}
+        BE-->>FE: {event: "handoff_queued", data: {route}}
+        BE-->>FE: {event: "handoff_completed", data: {downstream_id}}
+        BE-->>FE: {event: "ping", data: {}} (30s keepalive)
+    end
+
+    Note over FE,BE: On reconnect: FE refetches REST state<br/>WS events supplement but don't replace REST
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>10. Environment Variables</h2>
+
+<table>
+<tr><th>Variable</th><th>Used By</th><th>Purpose</th></tr>
+<tr><td><code>DATABASE_URL</code></td><td>BACKEND</td><td>PostgreSQL connection string</td></tr>
+<tr><td><code>REDIS_URL</code></td><td>BACKEND</td><td>Redis connection string</td></tr>
+<tr><td><code>FDE_API_KEY</code></td><td>BACKEND</td><td>Dev auth fallback</td></tr>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>BACKEND, APPDEVELOPER, LLMDeployer</td><td>Claude API access</td></tr>
+<tr><td><code>LITELLM_PROXY_URL</code></td><td>BACKEND, LLMDeployer</td><td>LiteLLM proxy endpoint</td></tr>
+<tr><td><code>APPDEVELOPER_BASE_URL</code></td><td>BACKEND</td><td>AppDeveloper downstream URL</td></tr>
+<tr><td><code>APPDEVELOPER_API_KEY</code></td><td>BACKEND</td><td>AppDeveloper API key</td></tr>
+<tr><td><code>LLMDEPLOYER_BASE_URL</code></td><td>BACKEND</td><td>LLMDeployer downstream URL</td></tr>
+<tr><td><code>LLMDEPLOYER_API_KEY</code></td><td>BACKEND, LLMDeployer</td><td>LLMDeployer API key</td></tr>
+<tr><td><code>PLANNER_MODE</code></td><td>BACKEND</td><td>fake / real Claude planner</td></tr>
+<tr><td><code>APPDEVELOPER_API_KEY</code></td><td>APPDEVELOPER</td><td>Incoming request auth</td></tr>
+<tr><td><code>VITE_FDE_API_BASE_URL</code></td><td>FRONTEND</td><td>BACKEND REST URL</td></tr>
+<tr><td><code>VITE_FDE_WS_BASE_URL</code></td><td>FRONTEND</td><td>BACKEND WebSocket URL</td></tr>
+<tr><td><code>VITE_FDE_API_KEY</code></td><td>FRONTEND</td><td>Bearer token for auth</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>11. Outbox Pattern (Exactly-Once Delivery)</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph TB
+    A["Approval Request"] --> B["BEGIN TXN"]
+    B --> C{"State = AWAITING_APPROVAL?<br/>plan_version matches?"}
+    C -- No --> D["ROLLBACK → 400/409"]
+    C -- Yes --> E["INSERT handoff_outbox<br/>(idempotency_key, route, package_json)"]
+    E --> F["UPDATE sessions<br/>state → HANDOFF_QUEUED"]
+    F --> G["INSERT audit_event"]
+    G --> H["COMMIT TXN"]
+    H --> I["Return 202 approved"]
+
+    I --> J["Outbox Worker polls"]
+    J --> K{"Route?"}
+    K -- APPDEVELOPER --> L["POST /v1/jobs<br/>X-API-Key + Idempotency-Key"]
+    K -- LLMDEPLOYER --> M["POST /api/sessions<br/>+ POST /api/sessions/{id}/answers"]
+
+    L --> N{"Success?"}
+    M --> N
+    N -- Yes --> O["INSERT receipt<br/>(downstream_id, downstream_status)"]
+    O --> P["UPDATE sessions → HANDED_OFF"]
+    P --> Q["UPDATE outbox → COMPLETED"]
+
+    N -- No --> R{"Attempts < 5?"}
+    R -- Yes --> S["UPDATE outbox → PENDING<br/>increment attempt_count"]
+    R -- No --> T["UPDATE outbox → FAILED"]
+    T --> U["Session → HANDOFF_FAILED"]
+
+    S --> J
+
+    style A fill:#d29922,stroke:#e3b341,color:#000
+    style H fill:#3fb950,stroke:#56d364,color:#000
+    style Q fill:#3fb950,stroke:#56d364,color:#000
+    style T fill:#f85149,stroke:#ff7b72,color:#fff
+</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2>12. Key Design Decisions</h2>
+
+<div class="grid">
+  <div class="grid-card">
+    <h4>Why Outbox Pattern?</h4>
+    <ul>
+      <li>Atomic state + outbox in single DB transaction</li>
+      <li>Worker retries with same idempotency key</li>
+      <li>Prevents duplicate downstream jobs/sessions</li>
+      <li>Max 5 attempts before HANDOFF_FAILED</li>
+      <li>Manual retry resets counter</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why BFF Pattern?</h4>
+    <ul>
+      <li>FRONTEND never calls downstream services directly</li>
+      <li>BACKEND owns all state transitions</li>
+      <li>Package transformation happens in BACKEND</li>
+      <li>Single auth boundary for the UI</li>
+      <li>CORS only configured for BACKEND</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why WS + REST?</h4>
+    <ul>
+      <li>REST for all mutations (safe, auditable)</li>
+      <li>WebSocket only for live progress notifications</li>
+      <li>UI refetches REST on reconnect (not event-sourced)</li>
+      <li>Events supplement but don't replace REST truth</li>
+      <li>30s keepalive pings prevent connection drops</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why Separate Services?</h4>
+    <ul>
+      <li>APPDEVELOPER: app generation (SQLite, GitHub)</li>
+      <li>LLMDeployer: deployment orchestration (in-memory)</li>
+      <li>BACKEND: orchestration + persistence (PostgreSQL)</li>
+      <li>Independent scaling and deployment</li>
+      <li>Clear separation of concerns</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    securityLevel: 'loose',
+    fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif'
+  });
+</script>
+</body>
+</html>

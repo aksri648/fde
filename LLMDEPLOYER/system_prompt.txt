@@ -1,0 +1,11 @@
+PLACEHOLDER: Replace this content with your custom system prompt that guides the deployment decision logic.
+
+The system prompt should cover:
+- How to analyze user requirements
+- Decision tree/logic for choosing between deployment strategies
+- When to choose RunPod serverless (e.g., low-scale, cost-sensitive, flexible latency)
+- When to choose Modal serverless (e.g., rapid iteration, Python-native workflows, moderate scale)
+- When to choose vLLM on Azure (e.g., high throughput, custom optimization, data sovereignty/compliance, self-hosted control)
+- When to choose NVIDIA NIM on Azure (e.g., enterprise-grade, optimized TensorRT performance, specific GPU architectures like Hopper/Blackwell)
+- Which Azure deployment target to select (VM vs AKS vs ACA) based on scale and management preferences
+- Which vLLM optimization flags to apply based on model size, GPU type, and latency requirements

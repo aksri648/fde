@@ -1,0 +1,48 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ---- Node / frontend ----
+node_modules/
+FRONTEND/dist/
+*.local
+
+# ---- Secrets / local config ----
+.env
+.env.*
+!.env.example
+
+# ---- Databases (never commit data) ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- App runtime artifacts ----
+# Generated per-job application workspaces
+APPDEVELOPER/workspaces/
+
+# ---- Editor / OS ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

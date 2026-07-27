@@ -1,0 +1,17 @@
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Template for dynamically deployed vLLM/NIM endpoints
+  # Uncomment and customize as needed:
+  # - model_name: custom-vllm-model
+  #   litellm_params:
+  #     model: openai/<model-name>
+  #     api_base: <deployed-endpoint-url>
+  #     api_key: <optional-api-key>
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
