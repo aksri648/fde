@@ -7,6 +7,63 @@ from app.utils.logger import get_logger
 logger = get_logger("agent_tools")
 
 
+async def search_pricing(query: str, provider: str = "") -> str:
+    """Search for real-time cloud GPU pricing using Tavily.
+
+    The agent calls this to look up current pricing for GPUs, cloud providers,
+    and deployment strategies before making recommendations.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    api_key = settings.TAVILY_API_KEY
+
+    if not api_key:
+        return json.dumps({
+            "error": "TAVILY_API_KEY not configured; cannot fetch live pricing.",
+            "fallback": "Use estimate_cost tool with static pricing estimates instead.",
+        })
+
+    try:
+        from tavily import AsyncTavilyClient
+
+        client = AsyncTavilyClient(api_key=api_key)
+
+        # Build a focused pricing query
+        search_query = f"cloud GPU pricing {query}"
+        if provider:
+            search_query = f"{provider} {search_query}"
+
+        results = await client.search(
+            query=search_query,
+            search_depth="basic",
+            topic="general",
+            max_results=5,
+        )
+
+        # Extract relevant snippets
+        sources = []
+        for result in results.get("results", []):
+            sources.append({
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "content": result.get("content", "")[:500],
+            })
+
+        return json.dumps({
+            "query": search_query,
+            "sources": sources,
+            "source_count": len(sources),
+        })
+
+    except Exception as e:
+        logger.error(f"Tavily search failed: {e}")
+        return json.dumps({
+            "error": f"Pricing search failed: {str(e)}",
+            "fallback": "Use estimate_cost tool with static pricing estimates instead.",
+        })
+
+
 async def analyze_requirements(requirements: str) -> str:
     req = json.loads(requirements) if isinstance(requirements, str) else requirements
     return json.dumps(

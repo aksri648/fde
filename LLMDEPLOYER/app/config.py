@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_BASE_URL: str = ""
     LITELLM_PROXY_URL: str = "http://localhost:4000"
+    TAVILY_API_KEY: str = ""
     LLMDEPLOYER_API_KEY: str = ""
     AZURE_TENANT_ID: str = ""
     AZURE_CLIENT_ID: str = ""

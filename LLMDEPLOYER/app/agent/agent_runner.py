@@ -11,6 +11,7 @@ from app.agent.tools import (
     deploy_runpod_serverless,
     deploy_vllm_on_azure,
     estimate_cost,
+    search_pricing,
     test_deployed_endpoint,
 )
 from app.config import get_settings
@@ -25,6 +26,7 @@ MAX_ITERATIONS = 12
 # Maps tool names (as exposed to the model) to their async implementations.
 TOOL_MAP = {
     "analyze_requirements": analyze_requirements,
+    "search_pricing": search_pricing,
     "deploy_runpod_serverless": deploy_runpod_serverless,
     "deploy_modal_serverless": deploy_modal_serverless,
     "deploy_vllm_on_azure": deploy_vllm_on_azure,
@@ -52,8 +54,26 @@ DEPLOYMENT_TOOLS = [
         },
     },
     {
+        "name": "search_pricing",
+        "description": "Search for real-time cloud GPU pricing information using Tavily web search. Use this to get current pricing for specific GPU types, cloud providers, and deployment options before making cost estimates or recommendations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The pricing query, e.g. 'A100 80GB hourly rate' or 'RunPod serverless GPU pricing 2024'.",
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Optional cloud provider to focus the search (e.g. 'RunPod', 'Azure', 'Modal', 'Lambda Labs').",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "estimate_cost",
-        "description": "Estimate the monthly cost of a deployment strategy for a given GPU type/count and daily usage. Use this to compare options before deploying.",
+        "description": "Estimate the monthly cost of a deployment strategy using static pricing tables. Use search_pricing first for current rates; fall back to this for quick estimates when live data is unavailable.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -220,10 +240,12 @@ async def run_deployment_agent(
 
     user_message = (
         "Analyze the deployment requirements below and execute the optimal "
-        "deployment strategy using the available tools. Compare options with "
-        "estimate_cost, then call the appropriate deploy_* tool to actually "
-        "provision the deployment, and finally verify it with "
-        "test_deployed_endpoint. Explain your reasoning at each step.\n\n"
+        "deployment strategy using the available tools. First use search_pricing "
+        "to look up current GPU pricing for the relevant providers, then "
+        "compare options with estimate_cost as a cross-check, call the "
+        "appropriate deploy_* tool to actually provision the deployment, and "
+        "finally verify it with test_deployed_endpoint. Explain your reasoning "
+        "at each step.\n\n"
         f"Deployment requirements:\n{json.dumps(requirements, indent=2)}"
     )
     messages: list[dict] = [{"role": "user", "content": user_message}]

@@ -8,6 +8,7 @@ httpx
 pydantic
 pydantic-settings
 python-dotenv
+tavily-python
 runpod
 modal
 azure-identity
