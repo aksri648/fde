@@ -29,11 +29,14 @@ class AgentService:
 
     async def _get_client(self) -> Any:
         if self._client is None:
-            # When a base URL + model are configured, use the real Claude Agent
-            # SDK. Point ANTHROPIC_BASE_URL at the LiteLLM proxy so the SDK's
-            # Anthropic-format traffic is transparently routed to your
-            # OpenAI-compatible backend (the SDK still "thinks" it is Claude).
-            if self._base_url and self._model:
+            # Use the real Claude Agent SDK when the proxy is configured. The
+            # minimum signal for "real mode" is ANTHROPIC_BASE_URL being set —
+            # that means the user has a LiteLLM proxy running. ANTHROPIC_API_KEY
+            # alone is not sufficient because the SDK spawns a CLI subprocess
+            # that may hang without a reachable endpoint.
+            has_real_config = bool(self._base_url)
+
+            if has_real_config:
                 try:
                     self._client = ClaudeAgentSDKClient(
                         base_url=self._base_url,
@@ -48,8 +51,8 @@ class AgentService:
                     self._client = MockClaudeClient()
                     return self._client
 
-            # No LLM endpoint configured: use a deterministic offline mock so the
-            # full job pipeline still runs without any external services.
+            # No LLM proxy endpoint configured: use a deterministic offline
+            # mock so the job pipeline still runs without external services.
             logger.warning("llm_endpoint_not_configured_using_mock_client")
             self._client = MockClaudeClient()
         return self._client
