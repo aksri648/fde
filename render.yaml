@@ -1,0 +1,133 @@
+services:
+  - type: web
+    runtime: static
+    name: fde-frontend
+    rootDir: FRONTEND
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+    envVars:
+      - key: VITE_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_FDE_API_BASE_URL
+        sync: false
+      - key: VITE_FDE_WS_BASE_URL
+        sync: false
+
+  - type: web
+    runtime: docker
+    name: fde-backend
+    rootDir: BACKEND
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: FDE_API_KEY
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FDE_CLAUDE_MODEL
+        sync: false
+      - key: PLANNER_MODE
+        value: real
+      - key: APPDEVELOPER_BASE_URL
+        value: http://fde-appdeveloper:8001
+      - key: APPDEVELOPER_API_KEY
+        sync: false
+      - key: LLMDEPLOYER_BASE_URL
+        value: http://fde-llmdeployer:8002
+      - key: LLMDEPLOYER_API_KEY
+        sync: false
+      - key: OUTBOX_POLL_SECONDS
+        value: "2"
+
+  - type: worker
+    runtime: docker
+    name: fde-backend-worker
+    rootDir: BACKEND
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m app.workers.main
+    envVars:
+      - fromService:
+          type: web
+          name: fde-backend
+          envVarKey: DATABASE_URL
+      - fromService:
+          type: web
+          name: fde-backend
+          envVarKey: REDIS_URL
+      - key: APPDEVELOPER_BASE_URL
+        value: http://fde-appdeveloper:8001
+      - fromService:
+          type: web
+          name: fde-backend
+          envVarKey: APPDEVELOPER_API_KEY
+      - key: LLMDEPLOYER_BASE_URL
+        value: http://fde-llmdeployer:8002
+      - fromService:
+          type: web
+          name: fde-backend
+          envVarKey: LLMDEPLOYER_API_KEY
+
+  - type: pserv
+    runtime: docker
+    name: fde-appdeveloper
+    rootDir: APPDEVELOPER
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: APPDEVELOPER_API_KEY
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: DAYTONA_API_KEY
+        sync: false
+      - key: DAYTONA_API_URL
+        value: https://app.daytona.io/api
+      - key: DAYTONA_TARGET
+        value: us
+
+  - type: pserv
+    runtime: docker
+    name: fde-llmdeployer
+    rootDir: LLMDEPLOYER
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: LLMDEPLOYER_API_KEY
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: DAYTONA_API_KEY
+        sync: false
+      - key: DAYTONA_API_URL
+        value: https://app.daytona.io/api
+      - key: DAYTONA_TARGET
+        value: us
