@@ -31,7 +31,6 @@
   .grid-card ul { list-style: none; font-size: 13px; }
   .grid-card li { padding: 3px 0; }
   .grid-card li::before { content: "›"; color: var(--accent); margin-right: 8px; }
-  .arrow { color: var(--accent); font-weight: bold; }
   code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--yellow); }
   .note { background: #0d1117; border-left: 3px solid var(--accent); padding: 12px 16px; margin: 12px 0; font-size: 13px; border-radius: 0 4px 4px 0; }
   @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
@@ -40,7 +39,8 @@
 <body>
 
 <h1>FDE System Architecture</h1>
-<p class="subtitle">Forward Deployed Engineer Planning &amp; Handoff System &mdash; 3 microservices + desktop UI</p>
+<p class="subtitle">Forward Deployed Engineer &mdash; Multi-user AI planning, code generation &amp; LLM deployment platform</p>
+
 
 <!-- ============================================================ -->
 <h2>1. High-Level System View</h2>
@@ -49,72 +49,72 @@
 <pre class="mermaid">
 %%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','primaryTextColor':'#fff','primaryBorderColor':'#388bfd','lineColor':'#58a6ff','secondaryColor':'#2d1f3f','tertiaryColor':'#1a2e1a','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
 graph TB
-    subgraph Desktop["🖥️  Desktop Renderer (SolidJS + Vite)"]
-        UI["SessionList · ConversationSurface<br/>InputComposer · QuestionPanel<br/>ProposalReview · SessionStatus"]
+    subgraph Desktop["🖥️  FRONTEND (SolidJS + Vite :5173)"]
+        LANDING["Landing Page<br/>(public marketing)"]
+        CLERK["Clerk Auth<br/>(sign-in/sign-up modal)"]
+        DASH["Dashboard<br/>(authenticated app)"]
+        LANDING --> CLERK --> DASH
     end
 
-    subgraph Backend["☁️  BACKEND  —  Public BFF  (FastAPI :8000)"]
+    subgraph Backend["☁️  BACKEND (FastAPI :8000)"]
         direction TB
-        API["REST /v1/* + WS /v1/sessions/{id}/events"]
-        AUTH["Bearer JWT / API Key Auth<br/>+ Tenant Isolation"]
-        PLANNER["Planner Service<br/>(Claude / LiteLLM)"]
+        AUTH["Auth Layer<br/>Clerk JWKS → API Key → Dev"]
+        API["REST /v1/* + WS events"]
+        PLANNER["Planner Service<br/>(Anthropic Messages via proxy)"]
         PROPOSAL["Proposal Service<br/>(approval → outbox)"]
-        OUTBOX["Outbox Worker<br/>(async delivery)"]
-        EVT["EventBroadcaster<br/>(WebSocket pub/sub)"]
-        DB[("PostgreSQL 16<br/>sessions · proposals<br/>turns · outbox · receipts<br/>audit_events")]
+        OUTBOX["Outbox Worker<br/>(separate process)"]
+        EVT["Event Broadcaster<br/>(WebSocket fan-out)"]
+        DB[("PostgreSQL (Neon)<br/>sessions · proposals<br/>outbox · receipts · audit")]
     end
 
-    subgraph AppDev["🔧  APPDEVELOPER  —  Job Generation  (FastAPI :8001)"]
+    subgraph AppDev["🔧  APPDEVELOPER (FastAPI :8001)"]
         JD_API["REST /v1/jobs"]
-        JD_AUTH["X-API-Key Auth"]
-        JD_SVC["JobService → AgentService<br/>ArchitectureService<br/>ReviewService"]
+        JD_SANDBOX["Daytona Sandbox<br/>(per job)"]
+        JD_AGENTS["4-Agent Pipeline<br/>Planner→Builder→Reviewer→Fixer"]
         JD_DB[("SQLite<br/>jobs · events")]
-        JD_GH["GitHubService<br/>(optional push)"]
     end
 
-    subgraph LLMDep["🚀  LLMDeployer  —  Deployment  (FastAPI :8002)"]
-        LD_API["REST /api/sessions + /api/sessions/{id}/answers"]
-        LD_AUTH["X-API-Key Auth"]
-        LD_SVC["SessionManager<br/>QuestionFlow · AgentOrchestrator"]
-        LD_ADAPT["Adapters:<br/>Azure · Runpod · Modal<br/>NIM · vLLM"]
-        LD_LLM["Claude Agent SDK<br/>(Anthropic)"]
+    subgraph LLMDep["🚀  LLMDEPLOYER (FastAPI :8002)"]
+        LD_API["REST /api/sessions"]
+        LD_SANDBOX["Daytona Sandbox<br/>(per session)"]
+        LD_AGENT["Tool-Use Agent<br/>(9 tools, Client SDK)"]
+        LD_ADAPT["Cloud Adapters<br/>RunPod·Modal·Azure·NIM"]
+        LD_TAVILY["Tavily Search<br/>(live pricing)"]
     end
 
     subgraph Infra["🏗️  Infrastructure"]
-        PG[("PostgreSQL 16<br/>:5432")]
-        REDIS[("Redis 7<br/>:6379")]
-        LITELLM["LiteLLM Proxy<br/>:4000"]
+        PG[("PostgreSQL<br/>(Neon)")]
+        REDIS[("Redis<br/>(Upstash)")]
+        LITELLM["LiteLLM Proxy<br/>(Anthropic→OpenAI)"]
+        DAYTONA["Daytona<br/>(Sandbox API)"]
+        CLERK_SVC["Clerk<br/>(Auth service)"]
     end
 
-    UI -- "HTTPS REST<br/>Bearer token" --> API
-    UI -- "WSS<br/>?token=..." --> API
+    DASH -- "Bearer Clerk JWT" --> API
+    DASH -. "WSS ?token=" .-> EVT
     API --> AUTH
     AUTH --> PLANNER
     PLANNER --> PROPOSAL
     PROPOSAL --> OUTBOX
-    PLANNER --> EVT
-    PROPOSAL --> EVT
 
-    OUTBOX -- "X-API-Key<br/>POST /v1/jobs" --> JD_API
-    OUTBOX -- "X-API-Key<br/>POST /api/sessions<br/>+ /answers" --> LD_API
+    OUTBOX -- "X-API-Key + Idempotency-Key" --> JD_API
+    OUTBOX -- "X-API-Key + Idempotency-Key" --> LD_API
 
-    API --> DB
-    OUTBOX --> DB
+    JD_API --> JD_SANDBOX --> JD_AGENTS
+    JD_AGENTS --> JD_DB
 
-    JD_API --> JD_AUTH
-    JD_AUTH --> JD_SVC
-    JD_SVC --> JD_DB
-    JD_SVC --> JD_GH
-
-    LD_API --> LD_AUTH
-    LD_AUTH --> LD_SVC
-    LD_SVC --> LD_ADAPT
-    LD_SVC --> LD_LLM
+    LD_API --> LD_SANDBOX --> LD_AGENT
+    LD_AGENT --> LD_ADAPT
+    LD_AGENT --> LD_TAVILY
 
     API --> PG
     API --> REDIS
     PLANNER --> LITELLM
-    LD_SVC --> LITELLM
+    JD_AGENTS --> LITELLM
+    LD_AGENT --> LITELLM
+    JD_SANDBOX --> DAYTONA
+    LD_SANDBOX --> DAYTONA
+    AUTH --> CLERK_SVC
 
     style Desktop fill:#161b22,stroke:#30363d,color:#c9d1d9
     style Backend fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
@@ -124,75 +124,161 @@ graph TB
 </pre>
 </div>
 
+
 <!-- ============================================================ -->
-<h2>2. REST API Endpoint Map</h2>
+<h2>2. Authentication Flow (Clerk)</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    participant U as 👤 User
+    participant FE as 🖥️ FRONTEND
+    participant CK as 🔐 Clerk
+    participant BE as ☁️ BACKEND
+
+    U->>FE: Visit app (localhost:5173)
+    FE->>FE: isSignedIn = false → show LandingPage
+    U->>FE: Click "Get Started"
+    FE->>CK: Open Clerk Sign-In modal
+    U->>CK: Authenticate (email/OAuth)
+    CK-->>FE: Session established, JWT issued
+    FE->>FE: isSignedIn = true → show Dashboard
+
+    Note over FE,BE: Every subsequent API call:
+    FE->>FE: getSessionToken() → Clerk JWT
+    FE->>BE: Authorization: Bearer {clerk_jwt}
+    BE->>CK: Fetch JWKS (cached 1hr)
+    BE->>BE: Verify RS256 signature + exp + nbf
+    BE->>BE: Extract sub → tenant_id + owner_id
+    BE-->>FE: Response (tenant-scoped data)
+</pre>
+</div>
+
+<div class="grid">
+  <div class="grid-card">
+    <h4>Auth Priority Chain (BACKEND)</h4>
+    <ul>
+      <li>1. Clerk JWKS verification (CLERK_JWKS_URL set)</li>
+      <li>2. Static API key match (FDE_API_KEY)</li>
+      <li>3. Legacy HS256 JWT (FDE_JWT_SECRET)</li>
+      <li>4. Dev mode fallback (APP_ENV=development, no keys)</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Multi-Tenancy</h4>
+    <ul>
+      <li>Clerk <code>sub</code> claim → tenant_id + owner_id</li>
+      <li>Every DB query filtered by tenant_id</li>
+      <li><code>ensure_session_ownership()</code> on all endpoints</li>
+      <li>403 Forbidden on cross-user access</li>
+    </ul>
+  </div>
+</div>
+
+
+<!-- ============================================================ -->
+<h2>3. LLM Routing (All Services)</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
 %%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
 graph LR
-    subgraph CLIENT["Client"]
-        C["FRONTEND<br/>(SolidJS)"]
+    subgraph Services["Application Code"]
+        BE["BACKEND<br/>(Anthropic Messages API)"]
+        AD["APPDEVELOPER<br/>(Claude Agent SDK)"]
+        LD["LLMDEPLOYER<br/>(Anthropic Client SDK)"]
     end
 
-    subgraph BFF["BACKEND :8000"]
-        direction TB
-        S1["POST /v1/sessions<br/><code>201 → SessionSnapshot</code>"]
-        S2["GET /v1/sessions/{id}"]
-        S3["POST /v1/sessions/{id}/turns"]
-        S4["POST /v1/sessions/{id}/answers"]
-        Q1["GET /v1/sessions/{id}/questions"]
-        P1["GET /v1/sessions/{id}/proposal"]
-        A1["POST /v1/sessions/{id}/approval"]
-        H1["GET /v1/sessions/{id}/handoff"]
-        H2["POST /v1/sessions/{id}/handoff/retry"]
-        C1["POST /v1/sessions/{id}/cancel"]
-        WS["WS /v1/sessions/{id}/events"]
-        HEALTH["GET /health"]
+    subgraph Proxy["LiteLLM Proxy"]
+        LIT["ANTHROPIC_BASE_URL<br/>Accepts /v1/messages<br/>Translates to /chat/completions"]
     end
 
-    C --> S1 & S2 & S3 & S4
-    C --> Q1 & P1 & A1 & H1 & H2 & C1
-    C -. "auth" .-> WS
+    subgraph Model["Your Model"]
+        OAI["OpenAI-compatible<br/>backend (any model)"]
+    end
+
+    BE -- "x-api-key, /v1/messages" --> LIT
+    AD -- "ANTHROPIC_BASE_URL env<br/>(SDK subprocess)" --> LIT
+    LD -- "base_url param<br/>AsyncAnthropic" --> LIT
+    LIT -- "Bearer key<br/>/chat/completions" --> OAI
+
+    style Services fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
+    style Proxy fill:#2d1f0f,stroke:#d29922,color:#c9d1d9
+    style Model fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
+</pre>
+</div>
+
+<div class="note">
+  <strong>One env var to rule them all:</strong> <code>ANTHROPIC_BASE_URL</code> on each service points at the LiteLLM proxy. 
+  The proxy translates Anthropic wire format → OpenAI Chat Completions. No code changes to swap models.
+</div>
+
+
+<!-- ============================================================ -->
+<h2>4. Sandbox Isolation (Daytona)</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+graph TB
+    subgraph Host["Host Microservice (.env secrets in process memory)"]
+        SVC["sandbox_service.exec_in_sandbox(task_id, cmd)"]
+        ENV["_get_sandbox_env()<br/>Collects: ANTHROPIC_*, AZURE_*,<br/>RUNPOD_*, MODAL_*, NGC_*"]
+    end
+
+    subgraph DaytonaAPI["Daytona Cloud API"]
+        DAPI["process.exec(cmd, env={secrets})"]
+    end
+
+    subgraph Sandbox["Ephemeral Sandbox (daytona-medium: 2vCPU/4GB/8GB)"]
+        PROC["Process runs with secrets<br/>in memory only (per-command)"]
+        FS["Isolated filesystem<br/>(no .env file written)"]
+        NET["Isolated network stack"]
+    end
+
+    SVC --> ENV --> DAPI --> PROC
+    PROC --> FS
+    PROC --> NET
+
+    style Host fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
+    style DaytonaAPI fill:#2d1f0f,stroke:#d29922,color:#c9d1d9
+    style Sandbox fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
 </pre>
 </div>
 
 <table>
-<tr><th>Endpoint</th><th>Method</th><th>Auth</th><th>State Guard</th><th>Response</th></tr>
-<tr><td><code>/v1/sessions</code></td><td>POST</td><td>Bearer JWT</td><td>—</td><td><span class="tag tag-rest">201</span> SessionSnapshot</td></tr>
-<tr><td><code>/v1/sessions/{id}</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>SessionSnapshot</td></tr>
-<tr><td><code>/v1/sessions/{id}/turns</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_ANSWERS / AWAITING_APPROVAL / FAILED</td><td><span class="tag tag-rest">202</span></td></tr>
-<tr><td><code>/v1/sessions/{id}/answers</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_ANSWERS / DISCOVERING</td><td><span class="tag tag-rest">202</span></td></tr>
-<tr><td><code>/v1/sessions/{id}/questions</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>QuestionListResponse</td></tr>
-<tr><td><code>/v1/sessions/{id}/proposal</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>{proposal, plan_version, citations}</td></tr>
-<tr><td><code>/v1/sessions/{id}/approval</code></td><td>POST</td><td>Bearer JWT</td><td>AWAITING_APPROVAL</td><td><span class="tag tag-rest">202</span> approved + outbox queued</td></tr>
-<tr><td><code>/v1/sessions/{id}/handoff</code></td><td>GET</td><td>Bearer JWT</td><td>tenant check</td><td>{outbox_status, receipt}</td></tr>
-<tr><td><code>/v1/sessions/{id}/handoff/retry</code></td><td>POST</td><td>Bearer JWT</td><td>HANDOFF_FAILED</td><td><span class="tag tag-rest">202</span> retry_queued</td></tr>
-<tr><td><code>/v1/sessions/{id}/cancel</code></td><td>POST</td><td>Bearer JWT</td><td>!HANDED_OFF</td><td>SessionSnapshot → CANCELLED</td></tr>
-<tr><td><code>/v1/sessions/{id}/events</code></td><td>WS</td><td>Query ?token=</td><td>tenant check</td><td>Event stream</td></tr>
+<tr><th>Property</th><th>APPDEVELOPER</th><th>LLMDEPLOYER</th></tr>
+<tr><td>Sandbox per</td><td>Job (job_id)</td><td>Session (session_id)</td></tr>
+<tr><td>Env vars injected</td><td>ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, HUGGING_FACE_HUB_TOKEN</td><td>AZURE_*, RUNPOD_API_KEY, MODAL_TOKEN_*, NGC_API_KEY, ANTHROPIC_*</td></tr>
+<tr><td>Auto-stop</td><td>30 min idle</td><td>30 min idle</td></tr>
+<tr><td>Auto-delete</td><td>On stop (ephemeral)</td><td>On stop (ephemeral)</td></tr>
+<tr><td>Fallback (no DAYTONA_API_KEY)</td><td>Local workspace dir</td><td>Local process execution</td></tr>
 </table>
 
+
 <!-- ============================================================ -->
-<h2>3. Session State Machine</h2>
+<h2>5. Session State Machine (BACKEND)</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
 %%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
 stateDiagram-v2
-    [*] --> DISCOVERING: create_session
+    [*] --> DISCOVERING: create_session + planner
 
-    DISCOVERING --> AWAITING_ANSWERS: planner needs info
-    DISCOVERING --> AWAITING_APPROVAL: planner ready
-    DISCOVERING --> FAILED: error
+    DISCOVERING --> AWAITING_ANSWERS: planner asks questions
+    DISCOVERING --> AWAITING_APPROVAL: planner produces proposal
+    DISCOVERING --> FAILED: planner error
 
-    AWAITING_ANSWERS --> DISCOVERING: answers submitted
+    AWAITING_ANSWERS --> DISCOVERING: submit answers → re-plan
     AWAITING_ANSWERS --> CANCELLED: cancel
 
     AWAITING_APPROVAL --> DISCOVERING: request_changes
-    AWAITING_APPROVAL --> HANDOFF_QUEUED: approve ✔
+    AWAITING_APPROVAL --> HANDOFF_QUEUED: approve
     AWAITING_APPROVAL --> CANCELLED: cancel
 
-    HANDOFF_QUEUED --> HANDED_OFF: outbox delivered ✔
+    HANDOFF_QUEUED --> HANDED_OFF: outbox delivered
     HANDOFF_QUEUED --> HANDOFF_FAILED: delivery error
     HANDOFF_QUEUED --> CANCELLED: cancel
 
@@ -206,8 +292,105 @@ stateDiagram-v2
 </pre>
 </div>
 
+
 <!-- ============================================================ -->
-<h2>4. Handoff Data Flow</h2>
+<h2>6. APPDEVELOPER Job State Machine</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#3fb950','lineColor':'#3fb950','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+stateDiagram-v2
+    [*] --> CREATED: POST /v1/jobs (auto-pipeline)
+
+    CREATED --> ARCHITECTURE_PROPOSED: planner runs
+    ARCHITECTURE_PROPOSED --> AWAITING_ANSWERS: questions needed
+    ARCHITECTURE_PROPOSED --> READY_TO_GENERATE: brief finalized
+    AWAITING_ANSWERS --> ARCHITECTURE_PROPOSED: answers → re-plan
+
+    READY_TO_GENERATE --> GENERATING: builder starts
+    GENERATING --> REVIEWING: files written
+    REVIEWING --> DEBUGGING: issues found
+    DEBUGGING --> REVIEWING: fix applied
+    REVIEWING --> VERIFIED: all checks pass (max 3 cycles)
+    REVIEWING --> REVIEW_FAILED: 3 cycles exhausted
+
+    VERIFIED --> AWAITING_PUSH_DECISION: optional GitHub
+    AWAITING_PUSH_DECISION --> AWAITING_GITHUB_TOKEN: user approves push
+    AWAITING_GITHUB_TOKEN --> PUSHING: token received + confirm
+    PUSHING --> PUSHED: success
+    PUSHING --> PUSH_FAILED: error
+
+    GENERATED --> CANCELLED: cancel at any point
+    CREATED --> CANCELLED: cancel
+    GENERATING --> FAILED: agent error
+</pre>
+</div>
+
+
+<!-- ============================================================ -->
+<h2>7. LLMDEPLOYER Tool-Use Agent</h2>
+
+<div class="diagram-container">
+<pre class="mermaid">
+%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#bc8cff','lineColor':'#bc8cff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    participant BE as Outbox Worker
+    participant LD as LLMDEPLOYER
+    participant SB as Daytona Sandbox
+    participant LLM as LLM (via proxy)
+    participant TV as Tavily API
+    participant CP as Cloud Provider
+
+    BE->>LD: POST /api/sessions + /answers
+    LD->>SB: Create sandbox (per session)
+    LD->>LLM: messages.create(tools=9, system_prompt)
+
+    loop Tool-Use Loop (max 12 iterations)
+        LLM-->>LD: tool_use: search_pricing
+        LD->>TV: Search GPU pricing
+        TV-->>LD: Pricing results
+        LD->>LLM: tool_result: {pricing data}
+
+        LLM-->>LD: tool_use: estimate_cost
+        LD->>LD: Static calculation
+        LD->>LLM: tool_result: {$530/mo}
+
+        LLM-->>LD: tool_use: deploy_runpod_serverless
+        LD->>SB: exec(deploy cmd, env={RUNPOD_API_KEY})
+        SB->>CP: RunPod GraphQL API
+        CP-->>SB: endpoint_id
+        SB-->>LD: result
+        LD->>LLM: tool_result: {endpoint_url}
+
+        LLM-->>LD: tool_use: test_deployed_endpoint
+        LD->>CP: Test inference call
+        CP-->>LD: response
+        LD->>LLM: tool_result: {success: true}
+    end
+
+    LLM-->>LD: Final text (stop_reason=end_turn)
+    LD->>SB: Destroy sandbox
+    LD-->>BE: {status: "completed"}
+</pre>
+</div>
+
+<table>
+<tr><th>Tool</th><th>Purpose</th><th>Provider</th></tr>
+<tr><td><code>search_pricing</code></td><td>Real-time cloud GPU pricing from web</td><td>Tavily API</td></tr>
+<tr><td><code>estimate_cost</code></td><td>Static monthly cost calculation (fallback)</td><td>Internal</td></tr>
+<tr><td><code>analyze_requirements</code></td><td>Parse and assess deployment requirements</td><td>Internal</td></tr>
+<tr><td><code>deploy_runpod_serverless</code></td><td>Provision RunPod serverless endpoint</td><td>RunPod GraphQL</td></tr>
+<tr><td><code>deploy_modal_serverless</code></td><td>Deploy vLLM on Modal</td><td>Modal CLI</td></tr>
+<tr><td><code>deploy_vllm_on_azure</code></td><td>Deploy vLLM on Azure VM/AKS/ACA</td><td>Azure Resource Manager</td></tr>
+<tr><td><code>deploy_nim_on_azure</code></td><td>Deploy NVIDIA NIM on Azure AKS/ACA</td><td>Azure + NGC</td></tr>
+<tr><td><code>check_deployment_status</code></td><td>Poll deployment health</td><td>Per-provider</td></tr>
+<tr><td><code>test_deployed_endpoint</code></td><td>Verify endpoint responds with inference</td><td>OpenAI-compat call</td></tr>
+</table>
+
+
+<!-- ============================================================ -->
+<h2>8. End-to-End Data Flow</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
@@ -216,98 +399,69 @@ sequenceDiagram
     autonumber
     participant U as 👤 User
     participant FE as 🖥️ FRONTEND
+    participant CK as 🔐 Clerk
     participant BE as ☁️ BACKEND
     participant DB as 🗄️ PostgreSQL
     participant OW as ⚙️ Outbox Worker
     participant AD as 🔧 APPDEVELOPER
-    participant LD as 🚀 LLMDeployer
+    participant LD as 🚀 LLMDEPLOYER
 
-    U->>FE: Click "Approve"
-    FE->>BE: POST /v1/sessions/{id}/approval<br/>{action: "approve", plan_version: 1}
-    BE->>DB: BEGIN TRANSACTION
-    BE->>DB: Validate session state = AWAITING_APPROVAL
-    BE->>DB: Validate plan_version matches
-    BE->>DB: Create outbox record<br/>(idempotency_key, route, package_json)
-    BE->>DB: UPDATE sessions SET state = HANDOFF_QUEUED
-    BE->>DB: INSERT audit_event (plan_approved_and_queued)
-    BE->>DB: COMMIT
-    BE-->>FE: {status: "approved", plan_version: 1}
-    BE-->>FE: WS event: handoff_queued
+    U->>FE: Opens app → sees Landing Page
+    U->>CK: Signs in via Clerk
+    CK-->>FE: JWT issued → Dashboard renders
 
-    loop Outbox Poll (every 1s)
-        OW->>DB: SELECT pending outbox entries (locked)
-    end
+    U->>FE: "Build a document processing pipeline"
+    FE->>BE: POST /v1/sessions {initial_message}
+    BE->>DB: Create session (tenant_id = clerk user_id)
+    BE->>BE: Planner LLM → 3 follow-up questions
+    BE->>DB: State → AWAITING_ANSWERS
+    BE-->>FE: WS: questions_ready
 
-    alt Route = APPDEVELOPER
-        OW->>AD: POST /v1/jobs<br/>X-API-Key: ***<br/>{prompt: "markdown brief"}
-        AD-->>OW: 201 {job_id: "abc-123", state: "queued"}
-    else Route = LLMDEPLOYER
-        OW->>LD: POST /api/sessions<br/>X-API-Key: ***
-        LD-->>OW: 200 {session_id: "ld-456"}
-        OW->>LD: POST /api/sessions/ld-456/answers<br/>{answers: {...}}
-        LD-->>OW: 200 {status: "analyzing"}
-    end
+    U->>FE: Answers questions
+    FE->>BE: POST /answers {q1, q2, q3}
+    BE->>BE: Planner LLM → ArchitectureProposal
+    BE->>DB: State → AWAITING_APPROVAL, route=APPDEVELOPER
+    BE-->>FE: WS: proposal_ready
 
-    OW->>DB: BEGIN TRANSACTION
-    OW->>DB: INSERT handoff_receipt<br/>(downstream_id, downstream_status)
-    OW->>DB: UPDATE sessions SET state = HANDED_OFF
-    OW->>DB: UPDATE outbox SET status = COMPLETED
-    OW->>DB: INSERT audit_event (handoff_completed)
-    OW->>DB: COMMIT
-    OW-->>FE: WS event: handoff_completed
-    FE->>FE: Refetch session + handoff status
-    FE-->>U: Show downstream receipt ID
+    U->>FE: Clicks "Approve"
+    FE->>BE: POST /approval {approve, plan_version: 1}
+    BE->>DB: Atomic: outbox row + state→HANDOFF_QUEUED + audit
+    BE-->>FE: WS: handoff_queued
+
+    OW->>DB: Poll PENDING outbox
+    OW->>AD: POST /v1/jobs {prompt: markdown brief}
+    AD->>AD: Create Daytona sandbox → 4-agent pipeline → VERIFIED
+    AD-->>OW: {job_id, state: CREATED}
+    OW->>DB: Receipt + state→HANDED_OFF
+    OW-->>FE: WS: handoff_completed
 </pre>
 </div>
 
-<!-- ============================================================ -->
-<h2>5. Security Architecture</h2>
-
-<div class="grid">
-  <div class="grid-card">
-    <h4>🔐 FRONTEND → BACKEND</h4>
-    <ul>
-      <li>Bearer JWT token (or API key in dev)</li>
-      <li>Token contains <code>tenant_id</code> + <code>owner_id</code></li>
-      <li>CORS: localhost:3000, localhost:5173 only</li>
-      <li>No credentials + wildcard origins</li>
-      <li>Rate limiting via Redis</li>
-    </ul>
-  </div>
-  <div class="grid-card">
-    <h4>🔑 BACKEND → APPDEVELOPER</h4>
-    <ul>
-      <li><code>X-API-Key</code> header</li>
-      <li><code>X-Correlation-ID</code> per request</li>
-      <li><code>X-FDE-Session-ID</code> + <code>X-FDE-Plan-Version</code></li>
-      <li><code>Idempotency-Key</code> for safe retry</li>
-      <li>30s connect/read/write timeout</li>
-    </ul>
-  </div>
-  <div class="grid-card">
-    <h4>🔑 BACKEND → LLMDeployer</h4>
-    <ul>
-      <li><code>X-API-Key</code> header</li>
-      <li><code>X-Correlation-ID</code> per request</li>
-      <li><code>X-FDE-Session-ID</code> + <code>X-FDE-Plan-Version</code></li>
-      <li>Two-step: create session → submit answers</li>
-      <li><code>raise_for_status()</code> on both calls</li>
-    </ul>
-  </div>
-  <div class="grid-card">
-    <h4>🛡️ Tenant Isolation</h4>
-    <ul>
-      <li>Every query filtered by <code>tenant_id</code></li>
-      <li><code>ensure_session_ownership()</code> on all endpoints</li>
-      <li>403 Forbidden on cross-tenant access</li>
-      <li>Audit events track all actor actions</li>
-      <li>Secret redaction on all logs</li>
-    </ul>
-  </div>
-</div>
 
 <!-- ============================================================ -->
-<h2>6. Database Schema</h2>
+<h2>9. REST API Endpoint Map</h2>
+
+<table>
+<tr><th>Endpoint</th><th>Method</th><th>Auth</th><th>State Guard</th><th>Response</th></tr>
+<tr><td><code>/v1/sessions</code></td><td>GET</td><td>Clerk JWT</td><td>—</td><td>list[SessionSnapshot] (tenant-scoped)</td></tr>
+<tr><td><code>/v1/sessions</code></td><td>POST</td><td>Clerk JWT</td><td>—</td><td><span class="tag tag-rest">201</span> SessionSnapshot + planner runs</td></tr>
+<tr><td><code>/v1/sessions/{id}</code></td><td>GET</td><td>Clerk JWT</td><td>tenant check</td><td>SessionSnapshot</td></tr>
+<tr><td><code>/v1/sessions/{id}/turns</code></td><td>POST</td><td>Clerk JWT</td><td>AWAITING_ANSWERS / FAILED</td><td><span class="tag tag-rest">202</span> + re-plans</td></tr>
+<tr><td><code>/v1/sessions/{id}/answers</code></td><td>POST</td><td>Clerk JWT</td><td>AWAITING_ANSWERS / DISCOVERING</td><td><span class="tag tag-rest">202</span> + re-plans</td></tr>
+<tr><td><code>/v1/sessions/{id}/questions</code></td><td>GET</td><td>Clerk JWT</td><td>tenant check</td><td>QuestionListResponse</td></tr>
+<tr><td><code>/v1/sessions/{id}/proposal</code></td><td>GET</td><td>Clerk JWT</td><td>tenant check</td><td>{proposal, plan_version, citations}</td></tr>
+<tr><td><code>/v1/sessions/{id}/approval</code></td><td>POST</td><td>Clerk JWT</td><td>AWAITING_APPROVAL</td><td><span class="tag tag-rest">202</span> approved + outbox queued</td></tr>
+<tr><td><code>/v1/sessions/{id}/handoff</code></td><td>GET</td><td>Clerk JWT</td><td>tenant check</td><td>{outbox_status, receipt}</td></tr>
+<tr><td><code>/v1/sessions/{id}/handoff/retry</code></td><td>POST</td><td>Clerk JWT</td><td>HANDOFF_FAILED</td><td><span class="tag tag-rest">202</span> retry_queued</td></tr>
+<tr><td><code>/v1/sessions/{id}/cancel</code></td><td>POST</td><td>Clerk JWT</td><td>!HANDED_OFF</td><td>SessionSnapshot → CANCELLED</td></tr>
+<tr><td><code>/v1/sessions/{id}/events</code></td><td>WS</td><td>?token=jwt</td><td>tenant check</td><td>Event stream (snapshot + live)</td></tr>
+<tr><td><code>/healthz</code></td><td>GET</td><td>None</td><td>—</td><td>{status: ok}</td></tr>
+<tr><td><code>/readyz</code></td><td>GET</td><td>None</td><td>—</td><td>{database, litellm checks}</td></tr>
+</table>
+
+
+<!-- ============================================================ -->
+<h2>10. Database Schema (PostgreSQL / Neon)</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
@@ -315,13 +469,11 @@ sequenceDiagram
 erDiagram
     planning_sessions {
         uuid id PK
-        varchar tenant_id
-        varchar owner_id
+        varchar tenant_id "Clerk user ID"
+        varchar owner_id "Clerk user ID"
         varchar state
         int current_plan_version
         varchar current_route
-        boolean is_cancelled
-        int version
         timestamp created_at
         timestamp updated_at
     }
@@ -332,7 +484,6 @@ erDiagram
         varchar role
         int sequence
         text sanitized_text
-        varchar correlation_id
         timestamp created_at
     }
 
@@ -342,7 +493,6 @@ erDiagram
         int plan_version
         jsonb proposal_json
         varchar content_hash
-        text approval_summary
         timestamp created_at
     }
 
@@ -352,7 +502,6 @@ erDiagram
         int plan_version
         varchar question_id
         jsonb question_json
-        timestamp created_at
     }
 
     question_answers {
@@ -361,7 +510,6 @@ erDiagram
         varchar question_id
         int plan_version
         text answer_value
-        timestamp created_at
     }
 
     handoff_outbox {
@@ -373,25 +521,15 @@ erDiagram
         jsonb package_json
         varchar status
         int attempt_count
-        int max_attempts
-        text last_error
-        varchar locked_by
-        timestamp locked_at
-        timestamp created_at
-        timestamp updated_at
     }
 
     handoff_receipts {
         uuid id PK
         uuid session_id FK
-        uuid outbox_id
         varchar route
-        uuid idempotency_key
         varchar downstream_id
         varchar downstream_status
-        text response_digest
         timestamp accepted_at
-        int attempt_count
     }
 
     audit_events {
@@ -399,8 +537,6 @@ erDiagram
         varchar actor
         varchar action
         uuid session_id FK
-        int proposal_version
-        varchar correlation_id
         jsonb sanitized_metadata
         timestamp created_at
     }
@@ -415,219 +551,244 @@ erDiagram
 </pre>
 </div>
 
-<!-- ============================================================ -->
-<h2>7. Service Port &amp; Dependency Map</h2>
-
-<div class="diagram-container">
-<pre class="mermaid">
-%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
-graph LR
-    subgraph Ports["Port Allocation"]
-        direction TB
-        P5432["PostgreSQL :5432"]
-        P6379["Redis :6379"]
-        P4000["LiteLLM :4000"]
-        P8000["BACKEND :8000"]
-        P8001["APPDEVELOPER :8001"]
-        P8002["LLMDeployer :8002"]
-        P5173["FRONTEND :5173"]
-    end
-
-    P8000 --> P5432
-    P8000 --> P6379
-    P8000 --> P4000
-    P8000 --> P8001
-    P8000 --> P8002
-    P8002 --> P4000
-    P5173 --> P8000
-
-    style Ports fill:#0d2137,stroke:#1f6feb,color:#c9d1d9
-</pre>
-</div>
-
-<table>
-<tr><th>Service</th><th>Port</th><th>Database</th><th>Auth</th><th>CORS</th></tr>
-<tr><td>BACKEND</td><td><span class="tag tag-port">8000</span></td><td><span class="tag tag-db">PostgreSQL 16</span></td><td><span class="tag tag-auth">Bearer JWT</span></td><td>localhost:3000, localhost:5173</td></tr>
-<tr><td>APPDEVELOPER</td><td><span class="tag tag-port">8001</span></td><td><span class="tag tag-db">SQLite (aiosqlite)</span></td><td><span class="tag tag-auth">X-API-Key</span></td><td>None (empty origins)</td></tr>
-<tr><td>LLMDeployer</td><td><span class="tag tag-port">8002</span></td><td><span class="tag tag-db">In-memory</span></td><td><span class="tag tag-auth">X-API-Key</span></td><td>localhost:3000, localhost:5173</td></tr>
-<tr><td>FRONTEND</td><td><span class="tag tag-port">5173</span></td><td>—</td><td>Bearer token in env</td><td>—</td></tr>
-<tr><td>PostgreSQL</td><td><span class="tag tag-port">5432</span></td><td>fde_backend</td><td>—</td><td>—</td></tr>
-<tr><td>Redis</td><td><span class="tag tag-port">6379</span></td><td>rate limiting</td><td>—</td><td>—</td></tr>
-<tr><td>LiteLLM</td><td><span class="tag tag-port">4000</span></td><td>—</td><td>Master key</td><td>—</td></tr>
-</table>
 
 <!-- ============================================================ -->
-<h2>8. Frontend Component Hierarchy</h2>
+<h2>11. Frontend Component Hierarchy</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
 %%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
 graph TB
-    APP["App.tsx<br/>Root"]
+    APP["App.tsx<br/>Auth Router"]
+    APP --> LP["LandingPage<br/>(public marketing)"]
+    APP --> DASH["Dashboard<br/>(authenticated)"]
 
-    APP --> SL["SessionList<br/>Sidebar session list"]
-    APP --> CS["ConversationSurface<br/>Message display"]
-    APP --> IC["InputComposer<br/>Free-text input"]
-    APP --> QP["QuestionPanel<br/>Typed question controls"]
-    APP --> PR["ProposalReview<br/>Architecture review + approve"]
-    APP --> SS["SessionStatus<br/>State machine status"]
-    APP --> CI["ConnectionIndicator<br/>WebSocket status"]
-    APP --> ES["EmptyState<br/>No session selected"]
-    APP --> NSD["NewSessionDialog<br/>Create session modal"]
+    DASH --> UB["UserButton<br/>(Clerk)"]
+    DASH --> SL["SessionList"]
+    DASH --> CS["ConversationSurface"]
+    DASH --> IC["InputComposer"]
+    DASH --> QP["QuestionPanel"]
+    DASH --> PR["ProposalReview"]
+    DASH --> SS["SessionStatus"]
+    DASH --> CI["ConnectionIndicator"]
+    DASH --> ES["EmptyState"]
+    DASH --> NSD["NewSessionDialog"]
 
-    subgraph Stores["State"]
-        ST["sessionStore<br/>createSession · refresh<br/>addTurn · submitAnswers<br/>approve · requestChanges<br/>cancel · retryHandoff<br/>connectWs"]
+    subgraph Auth["Auth Layer (auth/clerk.ts)"]
+        INIT["initClerk()"]
+        SIG["Signals: isLoaded, isSignedIn, user"]
+        TOK["getSessionToken() → JWT"]
     end
 
-    subgraph API["API Layer"]
-        AC["client.ts<br/>REST + WebSocket"]
-        TY["types.ts<br/>TypeScript types"]
+    subgraph Store["State (stores/session.ts)"]
+        ST["sessionStore<br/>createSession · refresh<br/>addTurn · submitAnswers<br/>approve · cancel<br/>connectWs"]
     end
 
-    APP --> ST
-    ST --> AC
-    AC --> TY
+    subgraph API["API (api/client.ts)"]
+        AC["REST calls + WS connect<br/>All use Bearer {clerk_jwt}"]
+    end
+
+    APP --> Auth
+    DASH --> Store
+    Store --> API
+    API --> Auth
 
     style APP fill:#1f6feb,stroke:#388bfd,color:#fff
-    style Stores fill:#2d1f3f,stroke:#bc8cff,color:#c9d1d9
+    style Auth fill:#2d1f0f,stroke:#d29922,color:#c9d1d9
+    style Store fill:#2d1f3f,stroke:#bc8cff,color:#c9d1d9
     style API fill:#1a2e1a,stroke:#3fb950,color:#c9d1d9
 </pre>
 </div>
 
-<!-- ============================================================ -->
-<h2>9. Event Flow (WebSocket)</h2>
-
-<div class="diagram-container">
-<pre class="mermaid">
-%%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
-sequenceDiagram
-    autonumber
-    participant FE as 🖥️ FRONTEND
-    participant BE as ☁️ BACKEND
-
-    FE->>BE: WS connect ?token=...
-    BE->>BE: Validate JWT → tenant_id
-    BE->>BE: Subscribe to session events
-    BE-->>FE: {event: "snapshot", data: {state, plan_version}}
-
-    loop Live updates
-        BE-->>FE: {event: "state_changed", data: {state}}
-        BE-->>FE: {event: "assistant_message", data: {text}}
-        BE-->>FE: {event: "questions_ready", data: {count}}
-        BE-->>FE: {event: "proposal_ready", data: {plan_version}}
-        BE-->>FE: {event: "handoff_queued", data: {route}}
-        BE-->>FE: {event: "handoff_completed", data: {downstream_id}}
-        BE-->>FE: {event: "ping", data: {}} (30s keepalive)
-    end
-
-    Note over FE,BE: On reconnect: FE refetches REST state<br/>WS events supplement but don't replace REST
-</pre>
-</div>
 
 <!-- ============================================================ -->
-<h2>10. Environment Variables</h2>
-
-<table>
-<tr><th>Variable</th><th>Used By</th><th>Purpose</th></tr>
-<tr><td><code>DATABASE_URL</code></td><td>BACKEND</td><td>PostgreSQL connection string</td></tr>
-<tr><td><code>REDIS_URL</code></td><td>BACKEND</td><td>Redis connection string</td></tr>
-<tr><td><code>FDE_API_KEY</code></td><td>BACKEND</td><td>Dev auth fallback</td></tr>
-<tr><td><code>ANTHROPIC_API_KEY</code></td><td>BACKEND, APPDEVELOPER, LLMDeployer</td><td>Claude API access</td></tr>
-<tr><td><code>LITELLM_PROXY_URL</code></td><td>BACKEND, LLMDeployer</td><td>LiteLLM proxy endpoint</td></tr>
-<tr><td><code>APPDEVELOPER_BASE_URL</code></td><td>BACKEND</td><td>AppDeveloper downstream URL</td></tr>
-<tr><td><code>APPDEVELOPER_API_KEY</code></td><td>BACKEND</td><td>AppDeveloper API key</td></tr>
-<tr><td><code>LLMDEPLOYER_BASE_URL</code></td><td>BACKEND</td><td>LLMDeployer downstream URL</td></tr>
-<tr><td><code>LLMDEPLOYER_API_KEY</code></td><td>BACKEND, LLMDeployer</td><td>LLMDeployer API key</td></tr>
-<tr><td><code>PLANNER_MODE</code></td><td>BACKEND</td><td>fake / real Claude planner</td></tr>
-<tr><td><code>APPDEVELOPER_API_KEY</code></td><td>APPDEVELOPER</td><td>Incoming request auth</td></tr>
-<tr><td><code>VITE_FDE_API_BASE_URL</code></td><td>FRONTEND</td><td>BACKEND REST URL</td></tr>
-<tr><td><code>VITE_FDE_WS_BASE_URL</code></td><td>FRONTEND</td><td>BACKEND WebSocket URL</td></tr>
-<tr><td><code>VITE_FDE_API_KEY</code></td><td>FRONTEND</td><td>Bearer token for auth</td></tr>
-</table>
-
-<!-- ============================================================ -->
-<h2>11. Outbox Pattern (Exactly-Once Delivery)</h2>
+<h2>12. Outbox Pattern (Reliable Handoff)</h2>
 
 <div class="diagram-container">
 <pre class="mermaid">
 %%{init:{'theme':'dark','themeVariables':{'primaryColor':'#1f6feb','lineColor':'#58a6ff','fontFamily':'-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif'}}}%%
 graph TB
-    A["Approval Request"] --> B["BEGIN TXN"]
+    A["POST /approval<br/>{approve}"] --> B["BEGIN TXN"]
     B --> C{"State = AWAITING_APPROVAL?<br/>plan_version matches?"}
     C -- No --> D["ROLLBACK → 400/409"]
-    C -- Yes --> E["INSERT handoff_outbox<br/>(idempotency_key, route, package_json)"]
-    E --> F["UPDATE sessions<br/>state → HANDOFF_QUEUED"]
+    C -- Yes --> E["INSERT handoff_outbox<br/>(idempotency_key, route, package)"]
+    E --> F["UPDATE session → HANDOFF_QUEUED"]
     F --> G["INSERT audit_event"]
-    G --> H["COMMIT TXN"]
-    H --> I["Return 202 approved"]
+    G --> H["COMMIT"]
+    H --> I["Return 202"]
 
-    I --> J["Outbox Worker polls"]
+    I --> J["Worker polls (1s)"]
     J --> K{"Route?"}
-    K -- APPDEVELOPER --> L["POST /v1/jobs<br/>X-API-Key + Idempotency-Key"]
-    K -- LLMDEPLOYER --> M["POST /api/sessions<br/>+ POST /api/sessions/{id}/answers"]
+    K -- APPDEVELOPER --> L["POST /v1/jobs"]
+    K -- LLMDEPLOYER --> M["POST /api/sessions + /answers"]
 
     L --> N{"Success?"}
     M --> N
-    N -- Yes --> O["INSERT receipt<br/>(downstream_id, downstream_status)"]
-    O --> P["UPDATE sessions → HANDED_OFF"]
-    P --> Q["UPDATE outbox → COMPLETED"]
-
+    N -- Yes --> O["Receipt + HANDED_OFF + COMPLETED"]
     N -- No --> R{"Attempts < 5?"}
-    R -- Yes --> S["UPDATE outbox → PENDING<br/>increment attempt_count"]
-    R -- No --> T["UPDATE outbox → FAILED"]
-    T --> U["Session → HANDOFF_FAILED"]
-
+    R -- Yes --> S["PENDING, increment attempt"]
+    R -- No --> T["FAILED → HANDOFF_FAILED"]
     S --> J
 
     style A fill:#d29922,stroke:#e3b341,color:#000
     style H fill:#3fb950,stroke:#56d364,color:#000
-    style Q fill:#3fb950,stroke:#56d364,color:#000
+    style O fill:#3fb950,stroke:#56d364,color:#000
     style T fill:#f85149,stroke:#ff7b72,color:#fff
 </pre>
 </div>
 
+
 <!-- ============================================================ -->
-<h2>12. Key Design Decisions</h2>
+<h2>13. Service Port &amp; Technology Map</h2>
+
+<table>
+<tr><th>Service</th><th>Port</th><th>Technology</th><th>Database</th><th>Auth</th><th>LLM SDK</th></tr>
+<tr><td>FRONTEND</td><td><span class="tag tag-port">5173</span></td><td>SolidJS + Vite + @clerk/clerk-js</td><td>—</td><td>Clerk UI</td><td>—</td></tr>
+<tr><td>BACKEND</td><td><span class="tag tag-port">8000</span></td><td>FastAPI + Pydantic v2 + SQLAlchemy 2</td><td><span class="tag tag-db">PostgreSQL (Neon)</span></td><td><span class="tag tag-auth">Clerk JWKS</span></td><td>Anthropic Messages API</td></tr>
+<tr><td>APPDEVELOPER</td><td><span class="tag tag-port">8001</span></td><td>FastAPI + Claude Agent SDK + Daytona</td><td><span class="tag tag-db">SQLite</span></td><td><span class="tag tag-auth">X-API-Key</span></td><td>Claude Agent SDK</td></tr>
+<tr><td>LLMDEPLOYER</td><td><span class="tag tag-port">8002</span></td><td>FastAPI + Anthropic Client SDK + Daytona</td><td>In-memory</td><td><span class="tag tag-auth">X-API-Key</span></td><td>Client SDK (tool-use)</td></tr>
+<tr><td>LiteLLM Proxy</td><td><span class="tag tag-port">4000</span></td><td>LiteLLM (Anthropic↔OpenAI)</td><td>—</td><td>Master key</td><td>—</td></tr>
+<tr><td>PostgreSQL</td><td><span class="tag tag-port">5432</span></td><td>Neon (managed)</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Redis</td><td><span class="tag tag-port">6379</span></td><td>Upstash (managed)</td><td>—</td><td>—</td><td>—</td></tr>
+</table>
+
+
+<!-- ============================================================ -->
+<h2>14. Security Architecture</h2>
 
 <div class="grid">
   <div class="grid-card">
+    <h4>🔐 User Authentication (Clerk)</h4>
+    <ul>
+      <li>RS256 JWT signed by Clerk's private key</li>
+      <li>Verified via JWKS endpoint (public key cached 1hr)</li>
+      <li>Short-lived tokens (5 min), auto-refreshed by SDK</li>
+      <li><code>sub</code> claim = user isolation boundary</li>
+      <li>Dev mode: bypasses when no CLERK_JWKS_URL set</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🔑 Service-to-Service</h4>
+    <ul>
+      <li><code>X-API-Key</code> header (shared secret per pair)</li>
+      <li><code>X-Correlation-ID</code> for request tracing</li>
+      <li><code>Idempotency-Key</code> for safe retries</li>
+      <li>30s timeouts on all downstream calls</li>
+      <li>Keys must match: BACKEND ↔ downstream .env</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🛡️ Sandbox Security</h4>
+    <ul>
+      <li>Secrets injected per-command (never on disk)</li>
+      <li>Full kernel/filesystem/network isolation</li>
+      <li>Ephemeral: destroyed after task completes</li>
+      <li>No cross-job contamination possible</li>
+      <li>Fallback to local when Daytona is not configured</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>🗃️ Data Protection</h4>
+    <ul>
+      <li>Tenant isolation: all queries filtered by user ID</li>
+      <li>Schema: <code>create_all</code> (never drops/truncates)</li>
+      <li>Secret redaction in all logs (structlog)</li>
+      <li>GitHub tokens: SecretStr, cleared in finally</li>
+      <li>No credentials in audit events or WS payloads</li>
+    </ul>
+  </div>
+</div>
+
+
+<!-- ============================================================ -->
+<h2>15. Environment Variables</h2>
+
+<table>
+<tr><th>Variable</th><th>Service(s)</th><th>Purpose</th></tr>
+<tr><td><code>VITE_CLERK_PUBLISHABLE_KEY</code></td><td>FRONTEND</td><td>Clerk auth initialization</td></tr>
+<tr><td><code>CLERK_JWKS_URL</code></td><td>BACKEND</td><td>Clerk JWT verification (JWKS endpoint)</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>BACKEND</td><td>PostgreSQL (Neon) connection</td></tr>
+<tr><td><code>REDIS_URL</code></td><td>BACKEND</td><td>Upstash Redis (rate limiting)</td></tr>
+<tr><td><code>ANTHROPIC_BASE_URL</code></td><td>ALL backends</td><td>LiteLLM proxy URL (Anthropic format)</td></tr>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>ALL backends</td><td>API key for the proxy</td></tr>
+<tr><td><code>ANTHROPIC_MODEL</code></td><td>APPDEVELOPER</td><td>Model alias for Agent SDK</td></tr>
+<tr><td><code>FDE_CLAUDE_MODEL</code></td><td>BACKEND</td><td>Model alias for planner</td></tr>
+<tr><td><code>CLAUDE_MODEL</code></td><td>LLMDEPLOYER</td><td>Model alias for tool-use agent</td></tr>
+<tr><td><code>PLANNER_MODE</code></td><td>BACKEND</td><td>real (LLM) or fake (deterministic)</td></tr>
+<tr><td><code>APPDEVELOPER_API_KEY</code></td><td>BACKEND + APPDEVELOPER</td><td>Shared service auth key</td></tr>
+<tr><td><code>LLMDEPLOYER_API_KEY</code></td><td>BACKEND + LLMDEPLOYER</td><td>Shared service auth key</td></tr>
+<tr><td><code>DAYTONA_API_KEY</code></td><td>APPDEVELOPER + LLMDEPLOYER</td><td>Daytona sandbox API access</td></tr>
+<tr><td><code>DAYTONA_API_URL</code></td><td>APPDEVELOPER + LLMDEPLOYER</td><td>Daytona API endpoint</td></tr>
+<tr><td><code>TAVILY_API_KEY</code></td><td>LLMDEPLOYER</td><td>Real-time pricing search</td></tr>
+<tr><td><code>AZURE_*</code></td><td>LLMDEPLOYER</td><td>Azure cloud credentials (4 vars)</td></tr>
+<tr><td><code>RUNPOD_API_KEY</code></td><td>LLMDEPLOYER</td><td>RunPod serverless access</td></tr>
+<tr><td><code>MODAL_TOKEN_*</code></td><td>LLMDEPLOYER</td><td>Modal credentials (ID + SECRET)</td></tr>
+<tr><td><code>NGC_API_KEY</code></td><td>LLMDEPLOYER</td><td>NVIDIA NGC container access</td></tr>
+</table>
+
+
+<!-- ============================================================ -->
+<h2>16. Key Design Decisions</h2>
+
+<div class="grid">
+  <div class="grid-card">
+    <h4>Why Clerk for Auth?</h4>
+    <ul>
+      <li>Multi-user with zero auth code (hosted UI + JWKS)</li>
+      <li>RS256 JWTs verified without a shared secret</li>
+      <li>User isolation via <code>sub</code> claim → tenant_id</li>
+      <li>Graceful dev mode when unconfigured</li>
+      <li>OAuth/social login for free</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why Daytona Sandboxes?</h4>
+    <ul>
+      <li>Full isolation per task (kernel, fs, network)</li>
+      <li>Secrets never touch sandbox filesystem</li>
+      <li>Ephemeral: auto-delete prevents resource leak</li>
+      <li>Per-task scaling without container orchestration</li>
+      <li>Graceful fallback to local when unconfigured</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why LiteLLM Proxy?</h4>
+    <ul>
+      <li>One proxy, any model backend</li>
+      <li>Anthropic format everywhere (consistent SDKs)</li>
+      <li>Swap models with zero code changes</li>
+      <li>No direct Anthropic dependency in production</li>
+      <li>Your OpenAI-compatible key and base URL</li>
+    </ul>
+  </div>
+  <div class="grid-card">
+    <h4>Why Tool-Use Agent Loop?</h4>
+    <ul>
+      <li>Real automated deployments (not just advice)</li>
+      <li>Model autonomously calls cloud APIs</li>
+      <li>Bounded: max 12 iterations, timeout per tool</li>
+      <li>Live pricing via Tavily before decisions</li>
+      <li>Verification: tests endpoint before declaring done</li>
+    </ul>
+  </div>
+  <div class="grid-card">
     <h4>Why Outbox Pattern?</h4>
     <ul>
-      <li>Atomic state + outbox in single DB transaction</li>
+      <li>Atomic state + delivery intent in one DB txn</li>
       <li>Worker retries with same idempotency key</li>
-      <li>Prevents duplicate downstream jobs/sessions</li>
-      <li>Max 5 attempts before HANDOFF_FAILED</li>
-      <li>Manual retry resets counter</li>
+      <li>Approval returns instantly (no blocking)</li>
+      <li>Downstream crash doesn't lose the handoff</li>
+      <li>Manual retry for permanent failures</li>
     </ul>
   </div>
   <div class="grid-card">
-    <h4>Why BFF Pattern?</h4>
+    <h4>Why BFF + Microservices?</h4>
     <ul>
-      <li>FRONTEND never calls downstream services directly</li>
-      <li>BACKEND owns all state transitions</li>
-      <li>Package transformation happens in BACKEND</li>
-      <li>Single auth boundary for the UI</li>
-      <li>CORS only configured for BACKEND</li>
-    </ul>
-  </div>
-  <div class="grid-card">
-    <h4>Why WS + REST?</h4>
-    <ul>
-      <li>REST for all mutations (safe, auditable)</li>
-      <li>WebSocket only for live progress notifications</li>
-      <li>UI refetches REST on reconnect (not event-sourced)</li>
-      <li>Events supplement but don't replace REST truth</li>
-      <li>30s keepalive pings prevent connection drops</li>
-    </ul>
-  </div>
-  <div class="grid-card">
-    <h4>Why Separate Services?</h4>
-    <ul>
-      <li>APPDEVELOPER: app generation (SQLite, GitHub)</li>
-      <li>LLMDeployer: deployment orchestration (in-memory)</li>
-      <li>BACKEND: orchestration + persistence (PostgreSQL)</li>
-      <li>Independent scaling and deployment</li>
-      <li>Clear separation of concerns</li>
+      <li>Single auth boundary for users (BACKEND)</li>
+      <li>FRONTEND never calls downstream directly</li>
+      <li>Each service scales independently</li>
+      <li>APPDEVELOPER: long-running generation</li>
+      <li>LLMDEPLOYER: cloud infra provisioning</li>
     </ul>
   </div>
 </div>
