@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     fde_api_key: str = ""
     fde_jwt_secret: str = ""
+    # Clerk JWKS URL for verifying session tokens. Format:
+    # https://<your-clerk-frontend-api>/.well-known/jwks.json
+    # or https://api.clerk.com/v1/jwks (requires CLERK_SECRET_KEY header)
+    clerk_jwks_url: str = ""
+    clerk_publishable_key: str = ""
     anthropic_api_key: str = ""
     fde_claude_model: str = "claude-sonnet-4-20250514"
     claude_agent_sdk_timeout_seconds: int = 90

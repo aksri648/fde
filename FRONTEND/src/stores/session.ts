@@ -145,10 +145,10 @@ export const sessionStore = {
       setState((s) => ({ ...s, loading: false, error: e.message }));
     }
   },
-  connectWs(sessionId: string) {
+  async connectWs(sessionId: string) {
     if (ws) ws.close();
     shouldReconnect = true;
-    ws = api.connectEvents(sessionId, (event: WebSocketEvent) => {
+    ws = await api.connectEvents(sessionId, (event: WebSocketEvent) => {
       if (event.event === "assistant_message" || event.event === "proposal_ready" || event.event === "questions_ready" || event.event === "handoff_queued" || event.event === "handoff_completed" || event.event === "state_changed") {
         this.refresh(sessionId);
       }

@@ -65,3 +65,15 @@ class SessionRepository:
             session.current_route = route
         await self.db.flush()
         return session
+
+
+    async def list_for_tenant(
+        self, tenant_id: str, limit: int = 50
+    ) -> list[PlanningSession]:
+        result = await self.db.execute(
+            select(PlanningSession)
+            .where(PlanningSession.tenant_id == tenant_id)
+            .order_by(PlanningSession.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())

@@ -53,6 +53,31 @@ async def _run_planning(
         logger.warning("planning_cycle_failed", session_id=str(session_id))
 
 
+@router.get(
+    "",
+    response_model=list[SessionSnapshot],
+    responses={401: {"model": ErrorResponse}},
+)
+async def list_sessions(
+    auth: Auth,
+    db: DBSession,
+) -> list[SessionSnapshot]:
+    """List all sessions for the authenticated user."""
+    repo = SessionRepository(db)
+    sessions = await repo.list_for_tenant(auth.tenant_id)
+    return [
+        SessionSnapshot(
+            id=s.id,
+            state=s.state,
+            plan_version=s.current_plan_version,
+            route=s.current_route,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        )
+        for s in sessions
+    ]
+
+
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
